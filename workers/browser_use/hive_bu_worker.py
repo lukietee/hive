@@ -40,11 +40,12 @@ from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionW
 from browser_use.llm.anthropic.chat import ChatAnthropic  # noqa: E402
 
 class HiveChatAnthropic(ChatAnthropic):
-    """Current Claude models reject a forced tool_choice; let browser-use use tool_choice=auto and
-    its text-recovery path (it already does this for adaptive-thinking models)."""
+    """Sonnet/Opus 5.5 reject a forced tool_choice ("tool"/"any"), so for them browser-use must use
+    tool_choice=auto plus its text-recovery path — which sometimes returns malformed actions. Haiku 5.5
+    still accepts a forced tool call, so it is the default browser model (reliable action format, cheap)."""
 
     def _requires_auto_tool_choice(self) -> bool:  # noqa: D401
-        return True
+        return "haiku" not in self.model.lower() or super()._requires_auto_tool_choice()
 
 
 GLIDE_MS = int(os.environ.get("HIVE_GLIDE_MS", "450"))
@@ -178,7 +179,7 @@ async def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--cdp-url", required=True)
     p.add_argument("--task", required=True)
-    p.add_argument("--model", default=os.environ.get("HIVE_BROWSER_MODEL", "claude-sonnet-5-5"))
+    p.add_argument("--model", default=os.environ.get("HIVE_BROWSER_MODEL", "claude-haiku-5-5"))
     p.add_argument("--max-steps", type=int, default=25)
     args = p.parse_args()
 
@@ -210,7 +211,8 @@ async def main() -> None:
             for k in ("total_prompt_tokens", "total_completion_tokens", "total_cost"):
                 if hasattr(usage, k):
                     tokens[k] = getattr(usage, k)
-        send({"ev": "done", "ok": bool(history.is_done() and history.is_successful() is not False),
+        # ok = the agent finished and reported back (it may still say part of the task wasn't possible).
+        send({"ev": "done", "ok": bool(history.is_done() and result), "success": history.is_successful(),
               "result": result, "steps": len(history.history), "tokens": tokens})
     except Exception as exc:
         send({"ev": "done", "ok": False, "result": f"error: {exc}", "steps": state["steps"], "tokens": {}})

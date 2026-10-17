@@ -11,6 +11,7 @@ import asyncio
 import functools
 import logging
 import math
+import os
 import shutil
 import tempfile
 import time
@@ -36,7 +37,7 @@ from .plan import PALETTE
 log = logging.getLogger("hive.orchestrator")
 
 REPO = Path(__file__).resolve().parents[4]
-WS_PORT = 8769
+WS_PORT = int(os.environ.get("HIVE_WS_PORT", "8770"))  # workspace copy served here (8769 = messenger)
 VIEWER_URL = f"http://127.0.0.1:{HTTP_PORT}/viewer/index.html"
 
 # Rough $/1M tokens (input, output) for the cost estimate in the run report.
