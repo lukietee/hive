@@ -65,3 +65,18 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 
 ## Sync rule
 Before a real action, an agent emits `moving_to`, waits `duration_ms`, emits `click` (or `typing`), **then** performs the action. The cursor always arrives before the app reacts.
+
+## Live view relay (👁, phone / Telegram Mini App)
+A separate socket so video never slows the main bus. Page: **`http://127.0.0.1:8766/live/`**. Relay: **`ws://127.0.0.1:8767`** (`HIVE_LIVE_HOST` / `HIVE_LIVE_PORT` to change; `HIVE_LIVE=0` turns streaming off).
+The relay is a bus client: it follows `ws://127.0.0.1:8765`, and each `BrowserAgent` streams its page to it with Chrome's `Page.startScreencast`, so it needs no macOS Screen Recording permission.
+
+| direction | message | data |
+|---|---|---|
+| relay → viewer (text) | `{"t":"hello","agents":{id:{name,color,emoji,status,progress,done,streaming,cursor}}}` | once on connect (late joiners also get each agent's last frame) |
+| relay → viewer (text) | `{"t":"bus","e":<event>}` | bus events `agent_spawn`, `agent_status`, `chat`, `agent_done`, `needs_human`, `swarm_summary`, `countdown`, `budget` |
+| relay → viewer (text) | `{"t":"cursor","agent","fx","fy","kind":"move"\|"click"\|"typing","duration_ms"?,"label"?,"text"?}` | `moving_to` / `click` / `typing` mapped to **fractions (0–1) of that agent's page viewport** |
+| relay → viewer (text) | `{"t":"stream","agent","on"}` | screencast started / stopped |
+| relay → viewer (binary) | `[u16 BE header length][header JSON][JPEG]` | header `{"agent","seq","ts","cap"?,"w","h"}`: `ts` relayed / `cap` captured (epoch ms), `w`×`h` viewport in CSS px |
+| viewer → relay | `{"t":"ping"}` → `{"t":"pong","ts"}` | commands still go to the bus (8765), not here |
+
+Frames are "latest wins" per viewer, so a slow phone drops frames instead of lagging behind.

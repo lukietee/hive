@@ -33,11 +33,19 @@ uv run python tools/ws_tail.py                         # in another terminal: pr
 | `scenarios/` | `demo_sim`, `deck_sim` (working); `pitch_in_5` (outlined stub) |
 | `testpages/form.html` | Local page the demo_sim agents work on; records real click coordinates for verification |
 | `tools/ws_tail.py` | Debug client that prints or records events |
+| `live/` | 👁 live view. `stream.py`: per-agent Chrome screencast (starts automatically in `BrowserAgent.open`, `HIVE_LIVE=0` to disable). `relay.py`: `ws://127.0.0.1:8767`, follows the bus, maps cursors to page fractions, latest-wins frames. `web/index.html`: phone page at **http://127.0.0.1:8766/live/** (tile grid, cursors, tap to focus + chat log; Telegram WebApp-aware) |
+| `tools/live_check.py` | Run during a scenario: per-agent fps / size / latency over the relay + a headless screenshot of the live page |
 
 ## Verified (Oct 17, on this Mac: macOS 26.4, Retina, Chrome)
 - **Cursor ↔ real click alignment:** in demo_sim, each agent's final cursor target matched where Chrome actually received the click to within **0.06 pt**. Chrome's reported window position matched the OS window list (CGWindowList) exactly. The page area starts 87 pt below the window's top edge (tabs + toolbar).
 - **3 agents in parallel:** each agent drove its own window, 6 real clicks per agent. 69 events reached a client: spawn 3, moving_to 21, click 12, typing 6, highlight 3, status 12, chat 3, done 3, summary 1.
 - **Deck rendering:** first LibreOffice render ~3.5s (cold start), then **~0.55–0.6s per re-render** for a 4-slide deck (PDF ~0.53s + PNG ~0.03s). The viewer crossfades and draws selection handles on the edited shape.
+
+- **Live view (👁):** demo_sim with 3 windows (500×359 viewports), 22s: ~4.5 fps per agent (Chrome only sends frames on repaint; capped at 8), ~27 KB per JPEG, **capture → client latency ~5 ms median, ~11 ms p95** on localhost. Cursor fractions land on the right buttons in the page's frames (headless screenshot checked).
+
+### Live view on a phone
+- **Same Wi-Fi:** run with `HIVE_LIVE_HOST=0.0.0.0` and also bind the static server to `0.0.0.0` (it's `127.0.0.1` now, in `http_server.py`), then open `http://<Mac LAN IP>:8766/live/`. The page connects to port 8767 on the same host. Campus Wi-Fi often blocks device-to-device traffic, so a phone hotspot is safer.
+- **Telegram Mini App:** Telegram requires HTTPS. Put both ports behind one tunnel (e.g. `cloudflared`/`ngrok`) and open `https://<tunnel>/live/?ws=wss://<tunnel-for-8767>`. The `?ws=` parameter overrides the relay URL.
 
 ## Not done / TODO
 - **Contract additions needed** (in `docs/CONTRACT.md`): `deck_loaded`, `deck_focus`, `deck_slide_updated`. The Mac app should ignore unknown event types.
