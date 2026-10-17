@@ -42,7 +42,8 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `typing` | `{ "x", "y", "text" }` | Show a small typing indicator by the cursor |
 | `highlight` | `{ "x", "y", "w", "h", "style": "circle" \| "box" \| "select" }` | Draw a circle, box or selection handles (fade out after 2.5s unless `"sticky": true`) |
 | `link` | `{ "from": [x,y], "to": [x,y], "text"? }` | Draw a line between two points (Checker conflicts) |
-| `needs_human` | `{ "question", "options": [..] }` | Pulse the cursor; show the question in the notch |
+| `needs_human` | `{ "question", "options": [..], "details"?: [..], "image"?, "kind"?: "choice" \| "approval", "amount"? }` | Pulse the cursor; show the question in the notch. `details[i]` is a short note shown after option *i* in iMessage; `image` is a local path or URL (screenshot) attached before the question; `kind: "approval"` + `amount` asks for an explicit YES before spending |
+| `call_summary` | `{ "to", "summary" }` | (Caller, after hanging up) texted to the owner; the transcript/summary also go to agent memory (below) |
 | `chat` | `{ "text" }` | (For the chat relay; the app may show it in the notch) |
 | `agent_done` | `{ "summary"? }` | Cursor flies back into the notch and disappears |
 | `swarm_summary` | `{ "title", "lines": [..] }` | Show the summary card in the notch |
@@ -61,7 +62,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim", "fast"?, "auto_human"?, "answer_timeout"? }`. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
 | `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
 | `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
-| `answer` | `{ "agent": id, "choice" }`: the reply to `needs_human` |
+| `answer` | `{ "agent": id, "choice", "free_text"?: true }`: the reply to `needs_human`. `free_text` means `choice` is the human's own words, not one of the options (for `kind: "approval"`, `choice` is `"YES"` or `"NO"`) |
 | `deck_viewer` | `{ "x", "y", "w", "h" }`: the native Deck Viewer's big-slide rect at 1× zoom, in screen points. Sent when the viewer appears, moves or resizes, and on (re)connect |
 | `deck_box` | `{ "slide", "label", "x", "y", "w", "h" }`: reply to each `deck_focus`, the focused box's **final on-screen rect after the viewer's zoom**, in screen points. Arrives within ~50 ms of `deck_focus` |
 
@@ -90,3 +91,13 @@ The relay is a bus client: it follows `ws://127.0.0.1:8765`, and each `BrowserAg
 | viewer → relay | `{"t":"ping"}` → `{"t":"pong","ts"}` | commands still go to the bus (8765), not here |
 
 Frames are "latest wins" per viewer, so a slow phone drops frames instead of lagging behind.
+
+## iMessage thread (Messenger)
+`uv run python -m hive_engine.messenger --fake | --photon` — a bus client (no engine changes) that bridges the bus to one plain-text iMessage thread with the owner (`HIVE_OWNER_PHONE`). Fake transport: Messages-style page + WS at **`http://127.0.0.1:8769/`** (`HIVE_CHAT_PORT`). Photon transport: REST, see `docs/PHOTON_SETUP.md`.
+
+- **Out:** `chat`, `agent_done` (with a summary), `swarm_summary`, `call_summary` → `"Name: …"` texts, batched over `HIVE_MESSENGER_BATCH_S` (2s). `agent_status` and cursor events are never texted. Emoji are stripped.
+- **Questions:** `needs_human` → numbered options + "Reply 1 or 2, or tell me something else." The reply `1`/`2`/the option text maps to that option; anything else is mapped by Claude when it clearly picks an option, otherwise sent as `answer {choice: <text>, free_text: true}`. Approvals accept only `YES` / `NO`.
+- **In:** `@Name …` → `say {agent}` (or answers that agent's pending question); `@everyone …` → `say {}`; `@Web show me` → reply with the live view URL (`HIVE_PUBLIC_LIVE_URL`, else `http://<LAN IP>:8766/live/`); `start` / `start party` / `pause` / `resume` → those commands; unaddressed text answers the latest pending question, else goes to `say {}`.
+
+## Agent memory
+`engine/memory/<agent>.jsonl` (gitignored; `HIVE_MEMORY_DIR` overrides), via `hive_engine.memory.append(agent, kind, text, **extra)` / `read(agent)`. One JSON object per line: `{ts, agent, kind, text, ...}` with `kind` in `call_transcript`, `call_summary`, `text_in`, `text_out`. The Caller should append `call_transcript` and `call_summary` records under the agent that placed the call (e.g. `cake`). When the owner texts `@Cake …` after that agent has finished, the Messenger answers from this memory with Claude, so the call carries over into text.
