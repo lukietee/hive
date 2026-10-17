@@ -347,21 +347,29 @@ The Deck agent edits the real `pitch.pptx` with **python-pptx**. Hive's own **De
 - Procreate ($12.99 if not already installed)
 - *No ESP32, HDMI adapter or capture card needed.*
 
-## 14. Prize targets
-| Prize | Why we qualify |
-|---|---|
-| **Track 4 · Applied Intelligence** (main track) | Practical AI that does real multi-app work |
-| **Browser Use** | The Web, Social and Fixer browser agents |
-| **Paper · Best Designed Hack** | The notch, cursors, Deck Viewer and live-view UI (check whether it must be designed in Paper) |
-| **Sentry** | Fixer uses Sentry mid-demo; Tracing + AI agent monitoring + Logs on the swarm |
-| **Cognition · Devin** | Builder agent and/or Devin used to build Hive |
-| **MLH: Gemini** | The logo autocomplete |
-| **Photon** (iMessage winner $700 / runner-up $300 / **Best Voice Agent $400**) | Demo 2: guest outreach + control thread on iMessage, the bakery voice agent on a Photon SMS number. Must be built on Photon 2.0 and live on at least one Photon channel. |
-| **Visa** (1st place $2,000) | Demo 2: AI shopping across discovery → decision → checkout → payment splitting; Treasurer spending caps + approvals. No Visa API required. Judged on innovation 25 / UX 25 / technical 20 / commerce impact 15 / **trust & responsibility 15** |
-| **MLH: GoDaddy / ElevenLabs** | Demo domain / ElevenLabs as the bakery-call voice (Demo 2) |
-| **Creao · One-Person Company** | "One founder + a swarm = a launch team" |
+## 14. Prize targets (updated Oct 17)
+Main track: **Track 4 · Applied Intelligence.** Check Devpost for a cap on sponsor prizes per project; if capped, rank **Photon → Visa → Browser Use → ElevenLabs → Devin/Paper**.
 
-**To do:** check the rules for the maximum number of sponsor prizes per project, and read each sponsor's detail doc.
+### Core (actively building on)
+| Sponsor | What we use |
+|---|---|
+| **Photon** (iMessage $700 / $300, **Best Voice Agent $400**) | iMessage control thread with @agent routing + question cards; the bakery call over Photon's SIP voice line. Must be built on Photon 2.0 and live on a Photon channel |
+| **Browser Use** | The Browser worker in the dynamic orchestrator (Web, Food, Gifts, Social agents) |
+| **Visa** ($2,000) | Party demo shopping: compare → decide → checkout, Treasurer spending caps + approvals. No Visa API required |
+| **MLH · ElevenLabs** | The Caller's voice (ElevenLabs hosted voice agent ⇄ Photon SIP) |
+
+### Cheap add-ons
+| Sponsor | What it takes |
+|---|---|
+| **Cognition · Devin** | A Devin worker type for coding tasks, and/or use Devin to build parts of Hive |
+| **Paper · Best Designed Hack** | Notch, cursors, Deck Viewer. Check whether the design must be made in Paper |
+| **MLH · Gemini** | Logo autocomplete / party invite images |
+| **MLH · GoDaddy** | Register the product domain |
+
+### Maybe / skip
+- **Sentry:** needs 2+ products beyond errors (tracing, logs). Only if stable overnight.
+- **Creao:** pitch angle only.
+- Not a fit: Fetch.ai, QNX, Espressif, Even Realities, Workday, Intuit, StepFun, Base44, veri.studio, other MLH challenges.
 
 ## 15. 24-hour build plan (team of 4 assumed)
 
@@ -612,3 +620,15 @@ The Deck agent edits the real `pitch.pptx` with **python-pptx**. Hive's own **De
 - The party flow only needs to work once: build it rough, no polish. All polish goes into Pitch in 5.
 - The party can drop to 4 beats: cut the iPad invite, since the iPad is shown live in Pitch in 5.
 - The live judge call/text satisfies Photon's "live on at least one Photon channel" requirement.
+
+
+## 23. Decisions (Oct 17, afternoon)
+- **Chat surface = iMessage via Photon. No custom native phone app.**
+  - One 1:1 "Hive" thread (free shared lines can't do groups). Address agents with @Name / @everyone; replies are prefixed with the agent's name.
+  - Our custom UI lives on web pages linked from iMessage: the **question card** (big option buttons, context, live view) and the **👁 live view** (`/live/`). Tapback reactions work as a fallback answer.
+  - A Telegram group (native inline buttons + Mini App) is optional later; a native SwiftUI iPhone app is out (needs Xcode, weakens the Photon story).
+- **Voice: ElevenLabs hosted voice agent ⇄ Photon SIP** instead of LiveKit (fewer moving parts before tonight's bakery recording). Transcript is pulled into the engine for the Mac Call window and the iMessage memory.
+- **Browser worker = Browser Use** (separate process per agent, reports to the bus; its click/type actions emit ghost-cursor events first).
+- **Dynamic orchestrator:** the Conductor picks the agents and their tasks per goal. Scripted Pitch in 5 stays as the stage-safe playbook.
+- **Notch UI:** Apple-style redesign — SF Symbols instead of emoji, hexagon mark, compact Live Activity unless hovered, question cards with buttons.
+- **iPad:** parked. Universal Control didn't link (even the real trackpad didn't cross). Revisit after the party recording.
