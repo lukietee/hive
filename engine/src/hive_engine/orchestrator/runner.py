@@ -112,7 +112,7 @@ async def run(bus: Bus, render_dir: Path, goal: str = "", workspace: str | None 
         raise ValueError("goal scenario needs a goal")
     t0 = time.monotonic()
     timeout = 1.0 if auto_human else (answer_timeout if answer_timeout is not None else 30.0)
-    static_ids = set(AGENTS)
+    static_agents = {k: dict(v) for k, v in AGENTS.items()}
     src = resolve_workspace(workspace)
     ws = copy_workspace(src) if src else None
     server = serve_dir(ws) if ws else None
@@ -269,9 +269,9 @@ async def run(bus: Bus, render_dir: Path, goal: str = "", workspace: str | None 
                 pass
         if server:
             server.shutdown()
-        for k in list(AGENTS):
-            if k not in static_ids:
-                AGENTS.pop(k, None)
+        # Dynamic agents registered themselves (possibly reusing a static id like "fixer"): restore the table.
+        AGENTS.clear()
+        AGENTS.update(static_agents)
 
     out.update(
         elapsed_s=round(time.monotonic() - t0, 1),

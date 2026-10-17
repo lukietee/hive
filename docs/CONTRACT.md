@@ -27,6 +27,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `guests` | Guests | `#FF375F` | 💌 |
 | `cake` | Cake | `#FFD60A` | 🎂 |
 | `food` | Food | `#FF6B35` | 🍕 |
+| `caller` | Caller | `#64D2FF` | 📞 |
 
 ## Event envelope (engine → clients)
 ```json
@@ -42,7 +43,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `typing` | `{ "x", "y", "text" }` | Show a small typing indicator by the cursor |
 | `highlight` | `{ "x", "y", "w", "h", "style": "circle" \| "box" \| "select" }` | Draw a circle, box or selection handles (fade out after 2.5s unless `"sticky": true`) |
 | `link` | `{ "from": [x,y], "to": [x,y], "text"? }` | Draw a line between two points (Checker conflicts) |
-| `needs_human` | `{ "question", "options": [..], "allow_other"? }` — `allow_other: true` means a free-text answer is welcome too (show "Other…"); `answer.choice` may then be any string, or an option number like `"1"` | Pulse the cursor; show the question in the notch |
+| `needs_human` | `{ "question", "options": [..], "allow_other"?: true }` — options are the agent's own 2–4 best choices, best first | Pulse the cursor; show the question card in the notch. `allow_other` (default `true`) adds an "Other…" button for a typed answer; `answer.choice` may then be any string (or an option number like `"1"`) |
 | `chat` | `{ "text" }` | (For the chat relay; the app may show it in the notch) |
 | `agent_done` | `{ "summary"? }` | Cursor flies back into the notch and disappears |
 | `swarm_summary` | `{ "title", "lines": [..] }` | Show the summary card in the notch |
@@ -51,6 +52,10 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `deck_loaded` | `{ "slides", "base", "version" }` | Deck Viewer loads the slide PNGs from `base` (e.g. `http://127.0.0.1:8766/...`) |
 | `deck_focus` | `{ "slide", "box": [x, y, w, h], "label" }` | Deck Viewer scrolls to and zooms the slide; box is in **fractions of the slide** (0–1), for the cursor + selection handles |
 | `deck_slide_updated` | `{ "slide", "version", "render_ms" }` | Deck Viewer crossfades to the re-rendered slide PNG |
+| `call_started` | `{ "call_id", "to", "label", "mode": "live"\|"fake" }` | Call window appears (caller ID = label + formatted number) |
+| `call_state` | `{ "call_id", "state": "ringing"\|"connected"\|"ended" }` | Status line: Ringing… → live timer → Call ended |
+| `call_transcript` | `{ "call_id", "speaker": "agent"\|"them", "text", "final" }` | Caption bubble; a non-final line is replaced by the next update from the same speaker |
+| `call_ended` | `{ "call_id", "duration_s", "outcome": "success"\|"failure"\|"unknown", "summary", "details": {…} }` | Summary card + fact chips; window fades out ~9s later |
 
 ## Commands (clients → engine)
 ```json
@@ -58,10 +63,10 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 ```
 | cmd | args |
 |---|---|
-| `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim" \| "goal", "fast"?, "auto_human"?, "answer_timeout"? }`; for `"goal"` also `"goal": str` (required), `"workspace"?: path` (agents edit a temp copy), `"urls"?: [str]`. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
+| `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim" \| "goal", "goal"?, "fast"?, "auto_human"?, "answer_timeout"? }`. `scenario: "goal"` carries the human's typed `goal` (notch "Ask Hive to…" box) for the dynamic orchestrator, plus optional `"workspace": path` (agents edit a temp copy) and `"urls": [str]`. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
 | `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
 | `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
-| `answer` | `{ "agent": id, "choice" }`: the reply to `needs_human` |
+| `answer` | `{ "agent": id, "choice", "free_text"?: true }`: the reply to `needs_human`. `free_text: true` means the human typed `choice` via "Other…" instead of picking an option; interpret it rather than matching it to an option |
 | `deck_viewer` | `{ "x", "y", "w", "h" }`: the native Deck Viewer's big-slide rect at 1× zoom, in screen points. Sent when the viewer appears, moves or resizes, and on (re)connect |
 | `deck_box` | `{ "slide", "label", "x", "y", "w", "h" }`: reply to each `deck_focus`, the focused box's **final on-screen rect after the viewer's zoom**, in screen points. Arrives within ~50 ms of `deck_focus` |
 
@@ -90,3 +95,27 @@ The relay is a bus client: it follows `ws://127.0.0.1:8765`, and each `BrowserAg
 | viewer → relay | `{"t":"ping"}` → `{"t":"pong","ts"}` | commands still go to the bus (8765), not here |
 
 Frames are "latest wins" per viewer, so a slow phone drops frames instead of lagging behind.
+
+
+## Calls (phone, via ElevenLabs ⇄ Photon SIP)
+Any agent can place a call: `await hive_engine.calls.place_call(agent, to="+1…", label="Bakery", goal="…", context={…}, follow_up=False)`.
+It emits the four `call_*` events above (with `agent` = the calling agent) and returns a `CallResult`.
+
+- **Live mode** (keys present): sets the hosted ElevenLabs agent's prompt + first message for this call
+  (`PATCH /v1/convai/agents/{id}`), dials with `POST /v1/convai/sip-trunk/outbound-call` through the Photon
+  number imported as a SIP trunk, and polls `GET /v1/convai/conversations/{id}` about once a second for
+  status, transcript turns and the post-call analysis. Setup: [`docs/CALLS_SETUP.md`](CALLS_SETUP.md).
+- **Fake mode** (`fake=True`, or no keys): a scripted call through the same events (`call_sim` scenario).
+- **Disclosure:** every prompt and first message says it's an AI and that the call is recorded.
+
+**Call memory (for the iMessage layer):** each finished call is appended to
+`engine/state/calls/<agent>.json` (`$HIVE_STATE_DIR` overrides `engine/state`; gitignored):
+```json
+{"agent": "cake", "calls": [{"call_id", "mode", "to", "label", "goal", "context", "follow_up",
+  "started_at", "ended_at", "duration_s", "outcome", "summary", "details": {…},
+  "transcript": [{"speaker": "agent"|"them", "text", "t"}], "conversation_id"}]}
+```
+Read it with `from hive_engine.calls import CallMemory`: `CallMemory().latest("cake")`, `.history("cake")`,
+or `.context_text("cake")` (a short recap to paste into an LLM prompt when the user texts "@Cake did they
+say 6?"). A change request becomes a follow-up call with `follow_up=True`, which feeds the last call's
+summary into the voice prompt.

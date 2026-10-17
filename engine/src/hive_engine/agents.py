@@ -12,6 +12,7 @@ AGENTS: dict[str, dict[str, str]] = {
     "guests":    {"name": "Guests",    "color": "#FF375F", "emoji": "💌"},
     "cake":      {"name": "Cake",      "color": "#FFD60A", "emoji": "🎂"},
     "food":      {"name": "Food",      "color": "#FF6B35", "emoji": "🍕"},
+    "caller":    {"name": "Caller",    "color": "#64D2FF", "emoji": "📞"},
 }
 
 

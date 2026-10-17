@@ -48,12 +48,53 @@ extension HiveStore {
     }
 
     /// Reply to the open needs_human question, then collapse the question row.
-    func answer(_ choice: String) {
+    /// `freeText` marks an answer the human typed via "Other…" instead of picking an option.
+    func answer(_ choice: String, freeText: Bool = false) {
         guard let q = question else { return }
-        send("answer", ["agent": q.agent, "choice": choice])
+        var args: [String: Any] = ["agent": q.agent, "choice": choice]
+        if freeText { args["free_text"] = true }
+        send("answer", args)
+        if editing == .other { endEditing() }
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             question = nil
             agents[q.agent]?.needsHuman = false
+        }
+    }
+
+    /// Start a run from a typed goal (the engine's dynamic orchestrator).
+    func startGoal(_ goal: String) {
+        let text = goal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        send("start", ["scenario": "goal", "goal": text])
+    }
+
+    // MARK: Text fields
+
+    func beginEditing(_ target: NotchEditing) {
+        if target == .other && question == nil { return }
+        draft = ""
+        withAnimation(HiveStyle.spring) { editing = target }
+    }
+
+    func endEditing() {
+        guard editing != nil else { return }
+        withAnimation(HiveStyle.spring) { editing = nil }
+        draft = ""
+    }
+
+    /// Return in the focused field.
+    func submitDraft() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch editing {
+        case .goal:
+            guard !text.isEmpty else { return }
+            startGoal(text)
+            endEditing()
+        case .other:
+            guard !text.isEmpty else { return }
+            answer(text, freeText: true)
+        case nil:
+            break
         }
     }
 
