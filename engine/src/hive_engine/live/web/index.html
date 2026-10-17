@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b0b0d">
+<title>Hive Live</title>
+<style>
+  :root {
+    --bg: #0b0b0d; --card: #151518; --card2: #1c1c21; --line: #26262c;
+    --text: #f2f2f4; --muted: #8b8b94; --ok: #30D158; --warn: #FFD60A; --bad: #FF453A;
+    --safe-top: env(safe-area-inset-top, 0px); --safe-bot: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif; }
+  body { min-height: 100vh; padding: calc(10px + var(--safe-top)) 12px calc(18px + var(--safe-bot)); }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 4px 4px 12px; }
+  header h1 { font-size: 17px; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+  header .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700;
+    letter-spacing: .08em; color: var(--bad); text-transform: uppercase; }
+  header .live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1.4s infinite; }
+  header .live.off { color: var(--muted); } header .live.off i { animation: none; }
+  header .meta { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  @keyframes pulse { 50% { opacity: .25; } }
+
+  #grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 640px) { #grid { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1100px) { #grid { grid-template-columns: 1fr 1fr 1fr; } }
+
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+    position: relative; cursor: pointer; transition: transform .15s ease, border-color .3s; }
+  .tile:active { transform: scale(.985); }
+  .tile.working { border-color: color-mix(in srgb, var(--c) 55%, var(--line)); }
+  .tile.done { opacity: .82; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); flex: none; }
+  .tile.done .dot { box-shadow: none; }
+  .name { font-weight: 650; }
+  .status { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .badge { font-size: 10.5px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+  .tile.done .badge { color: var(--ok); }
+  .prog { height: 2px; background: var(--line); }
+  .prog b { display: block; height: 100%; width: 0; background: var(--c); transition: width .5s ease; }
+
+  .screen { position: relative; background: #000; aspect-ratio: 16 / 10; overflow: hidden; }
+  .screen img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; display: block; }
+  .screen .wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+  .cur { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 3;
+    transition-property: left, top; transition-timing-function: cubic-bezier(.25,.8,.25,1); }
+  .cur svg { position: absolute; left: -2px; top: -2px; width: 18px; height: 22px; filter: drop-shadow(0 1px 2px #000a); }
+  .cur .lbl { position: absolute; left: 14px; top: 16px; white-space: nowrap; font-size: 10.5px; font-weight: 650;
+    padding: 2px 6px; border-radius: 6px; background: var(--c); color: #000; opacity: 0; transition: opacity .2s; }
+  .cur .lbl.on { opacity: 1; }
+  .ripple { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%;
+    border: 2px solid var(--c); pointer-events: none; z-index: 2; animation: rip .6s ease-out forwards; }
+  @keyframes rip { from { transform: scale(.2); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+
+  .empty { color: var(--muted); text-align: center; padding: 60px 20px; border: 1px dashed var(--line); border-radius: 16px; }
+
+  /* focus view */
+  #focus { position: fixed; inset: 0; background: var(--bg); z-index: 10; display: none; flex-direction: column;
+    padding: calc(8px + var(--safe-top)) 0 var(--safe-bot); }
+  #focus.on { display: flex; }
+  #focus .top { display: flex; align-items: center; gap: 10px; padding: 4px 12px 10px; }
+  #focus .back { background: var(--card2); color: var(--text); border: 0; border-radius: 10px; padding: 7px 11px;
+    font: inherit; font-weight: 600; cursor: pointer; }
+  #focus .tile { border-radius: 0; border-left: 0; border-right: 0; cursor: default; }
+  #focus .tile:active { transform: none; }
+  #log { flex: 1; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+  #log div { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 7px 10px;
+    font-size: 13px; align-self: flex-start; max-width: 92%; }
+  #log div.q { border-color: var(--warn); }
+  #log time { color: var(--muted); font-size: 10.5px; margin-left: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐝 Hive</h1>
+  <span class="live off" id="live"><i></i><span id="liveTxt">Offline</span></span>
+  <span class="meta" id="meta"></span>
+</header>
+<div id="grid"><div class="empty" id="empty">Waiting for agents…</div></div>
+
+<div id="focus">
+  <div class="top"><button class="back" id="back">‹ All agents</button><span class="meta" id="fmeta"></span></div>
+  <div id="fslot"></div>
+  <div id="log"></div>
+</div>
+
+<template id="tpl">
+  <div class="tile">
+    <div class="bar"><span class="name"></span><span class="status"></span><span class="badge"></span></div>
+    <div class="prog"><b></b></div>
+    <div class="screen">
+      <div class="wait">no video yet</div>
+      <img alt="">
+      <div class="cur">
+        <svg viewBox="0 0 18 22"><path d="M2 2 L2 17 L6.2 13.2 L9 19.5 L11.6 18.4 L8.9 12.2 L14.5 12.2 Z" fill="var(--c)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        <span class="lbl"></span>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+(() => {
+  // ---- Telegram Mini App (optional: works in any browser) ----
+  const tg = window.Telegram && window.Telegram.WebApp;
+  function initTelegram() {
+    const t = window.Telegram && window.Telegram.WebApp;
+    if (!t) return;
+    t.ready(); t.expand();
+    try { t.setHeaderColor('#0b0b0d'); t.setBackgroundColor('#0b0b0d'); } catch (_) {}
+    t.BackButton && t.BackButton.onClick(() => unfocus());
+  }
+  if (location.search.includes('tg=0') === false && !tg) {
+    const s = document.createElement('script');
+    s.src = 'https://telegram.org/js/telegram-web-app.js';
+    s.async = true; s.onload = initTelegram; s.onerror = () => {};
+    document.head.appendChild(s);
+  } else initTelegram();
+
+  const params = new URLSearchParams(location.search);
+  const WS_URL = params.get('ws') || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname || '127.0.0.1'}:8767`;
+
+  const $ = (id) => document.getElementById(id);
+  const grid = $('grid'), tpl = $('tpl');
+  const agents = new Map();   // id -> {el, img, cur, lbl, st, url, logs:[]}
+  let focused = null, frames = 0, bytes = 0, lat = [], lastStat = performance.now();
+  window.__live = { frames: 0, perAgent: {}, latency: [] };  // for automated checks
+
+  function tile(id, meta) {
+    let a = agents.get(id);
+    if (a) { applyMeta(a, meta); return a; }
+    const el = tpl.content.firstElementChild.cloneNode(true);
+    a = { id, el, img: el.querySelector('img'), cur: el.querySelector('.cur'), lbl: el.querySelector('.lbl'),
+          wait: el.querySelector('.wait'), screen: el.querySelector('.screen'), url: null, logs: [], st: {} };
+    el.dataset.agent = id;
+    el.addEventListener('click', () => focus(id));
+    agents.set(id, a);
+    $('empty') && $('empty').remove();
+    grid.appendChild(el);
+    applyMeta(a, meta);
+    return a;
+  }
+  function applyMeta(a, m) {
+    Object.assign(a.st, m || {});
+    const s = a.st;
+    a.el.style.setProperty('--c', s.color || '#8E8E93');
+    a.el.querySelector('.name').textContent = `${s.emoji || ''} ${s.name || a.id}`.trim();
+    a.el.querySelector('.status').textContent = s.status || (s.done ? 'Done' : '');
+    a.el.querySelector('.badge').textContent = s.done ? 'DONE ✓' : (s.streaming ? 'LIVE' : '');
+    a.el.querySelector('.prog b').style.width = `${Math.round((s.progress || 0) * 100)}%`;
+    a.el.classList.toggle('done', !!s.done);
+    a.el.classList.toggle('working', !s.done && !!s.status);
+    if (s.cursor) placeCursor(a, s.cursor[0], s.cursor[1], 0);
+    if (focused === a.id) $('fmeta').textContent = s.status || '';
+  }
+  function placeCursor(a, fx, fy, ms) {
+    a.cur.style.transitionDuration = `${ms || 0}ms`;
+    a.cur.style.left = `${(fx * 100).toFixed(2)}%`;
+    a.cur.style.top = `${(fy * 100).toFixed(2)}%`;
+  }
+  function ripple(a, fx, fy) {
+    const r = document.createElement('div');
+    r.className = 'ripple';
+    r.style.left = `${fx * 100}%`; r.style.top = `${fy * 100}%`;
+    a.screen.appendChild(r);
+    setTimeout(() => r.remove(), 650);
+  }
+  function addLog(a, text, cls) {
+    a.logs.push({ text, cls, t: new Date() });
+    if (a.logs.length > 60) a.logs.shift();
+    if (focused === a.id) renderLog(a);
+  }
+  function renderLog(a) {
+    const log = $('log');
+    log.innerHTML = '';
+    for (const l of a.logs) {
+      const d = document.createElement('div');
+      if (l.cls) d.className = l.cls;
+      d.textContent = l.text;
+      const tm = document.createElement('time');
+      tm.textContent = l.t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+      d.appendChild(tm);
+      log.appendChild(d);
+    }
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // ---- focus (tap a tile → full screen) ----
+  function focus(id) {
+    const a = agents.get(id); if (!a || focused) return;
+    focused = id;
+    a.placeholder = document.createElement('div');
+    a.el.replaceWith(a.placeholder);
+    $('fslot').appendChild(a.el);
+    $('focus').classList.add('on');
+    $('fmeta').textContent = a.st.status || '';
+    renderLog(a);
+    const t = window.Telegram && window.Telegram.WebApp; t && t.BackButton && t.BackButton.show();
+  }
+  function unfocus() {
+    const a = agents.get(focused); if (!a) return;
+    a.placeholder.replaceWith(a.el);
+    focused = null;
+    $('focus').classList.remove('on');
+    const t = window.Telegram && window.Telegram.WebApp; t && t.BackButton && t.BackButton.hide();
+  }
+  $('back').addEventListener('click', unfocus);
+
+  // ---- messages ----
+  function onText(m) {
+    if (m.t === 'hello') { for (const [id, s] of Object.entries(m.agents || {})) tile(id, s); return; }
+    if (m.t === 'stream') { tile(m.agent, { streaming: m.on }); return; }
+    if (m.t === 'cursor') {
+      const a = tile(m.agent);
+      placeCursor(a, m.fx, m.fy, m.kind === 'move' ? (m.duration_ms || 300) : 0);
+      if (m.kind === 'click') ripple(a, m.fx, m.fy);
+      if (m.label || m.text) {
+        a.lbl.textContent = m.kind === 'typing' ? `⌨ ${m.text}` : m.label;
+        a.lbl.classList.add('on');
+        clearTimeout(a.lblT); a.lblT = setTimeout(() => a.lbl.classList.remove('on'), 1600);
+      }
+      return;
+    }
+    if (m.t === 'bus') {
+      const e = m.e, d = e.data || {};
+      if (!e.agent) return;
+      const a = tile(e.agent);
+      if (e.type === 'agent_spawn') applyMeta(a, { name: d.name, color: d.color, emoji: d.emoji, done: false });
+      else if (e.type === 'agent_status') applyMeta(a, { status: d.text, ...(d.progress != null ? { progress: d.progress } : {}) });
+      else if (e.type === 'agent_done') { applyMeta(a, { done: true, status: d.summary || 'Done', progress: 1 }); addLog(a, `✓ ${d.summary || 'Done'}`); }
+      else if (e.type === 'chat') addLog(a, d.text);
+      else if (e.type === 'needs_human') addLog(a, `❓ ${d.question}  [${(d.options || []).join(' / ')}]`, 'q');
+    }
+  }
+  function onFrame(buf) {
+    const dv = new DataView(buf);
+    const hl = dv.getUint16(0);
+    const h = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 2, hl)));
+    const a = tile(h.agent);
+    const blob = new Blob([new Uint8Array(buf, 2 + hl)], { type: 'image/jpeg' });
+    const url = URL.createObjectURL(blob);
+    const prev = a.url; a.url = url;
+    a.img.onload = () => { if (prev) URL.revokeObjectURL(prev); };
+    a.img.src = url;
+    if (h.w && h.h && a.ar !== `${h.w}/${h.h}`) { a.ar = `${h.w}/${h.h}`; a.screen.style.aspectRatio = a.ar; }
+    a.wait.style.display = 'none';
+    frames++; bytes += buf.byteLength;
+    const l = Date.now() - (h.cap || h.ts); lat.push(l);  // capture → screen (same clock on one Mac) if (lat.length > 50) lat.shift();
+    const L = window.__live; L.frames++; L.perAgent[h.agent] = (L.perAgent[h.agent] || 0) + 1;
+    L.latency.push(l); if (L.latency.length > 500) L.latency.shift();
+  }
+  setInterval(() => {
+    const now = performance.now(), dt = (now - lastStat) / 1000;
+    if (frames) {
+      const sorted = [...lat].sort((x, y) => x - y), med = sorted[sorted.length >> 1] || 0;
+      $('meta').textContent = `${(frames / dt).toFixed(1)} fps · ${(bytes / dt / 1024).toFixed(0)} KB/s · ${med} ms`;
+    } else if (ws && ws.readyState === 1) $('meta').textContent = 'idle';
+    frames = 0; bytes = 0; lastStat = now;
+  }, 1000);
+
+  // ---- socket (auto-reconnect) ----
+  let ws = null;
+  function setLive(on, txt) { $('live').classList.toggle('off', !on); $('liveTxt').textContent = txt; }
+  function connect() {
+    ws = new WebSocket(WS_URL);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => setLive(true, 'Live');
+    ws.onmessage = (ev) => typeof ev.data === 'string' ? onText(JSON.parse(ev.data)) : onFrame(ev.data);
+    ws.onclose = () => { setLive(false, 'Reconnecting'); setTimeout(connect, 1500); };
+    ws.onerror = () => ws.close();
+  }
+  connect();
+})();
+</script>
+</body>
+</html>
