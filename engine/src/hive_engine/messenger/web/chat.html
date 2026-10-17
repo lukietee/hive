@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hive · Messages</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #000; --muted: #8e8e93; --them: #e9e9eb; --them-text: #000;
+    --me: #0a84ff; --me-text: #fff; --bar: rgba(249,249,249,.94); --hair: rgba(60,60,67,.18); --field: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #000; --text: #fff; --muted: #8e8e93; --them: #26252a; --them-text: #fff;
+            --bar: rgba(22,22,24,.94); --hair: rgba(84,84,88,.6); --field: #1c1c1e; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 17px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; max-width: 520px; margin: 0 auto; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: column; align-items: center;
+    gap: 4px; padding: 10px 16px 8px; background: var(--bar); backdrop-filter: blur(20px);
+    border-bottom: .5px solid var(--hair); }
+  .avatar { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: linear-gradient(#ffd633, #ff9f0a); }
+  .avatar svg { width: 22px; height: 22px; }
+  .who { font-size: 12px; color: var(--text); }
+  .status { font-size: 11px; color: var(--muted); }
+  main { flex: 1; overflow-y: auto; padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .row { display: flex; }
+  .row.me { justify-content: flex-end; }
+  .bubble { max-width: 78%; padding: 8px 13px; border-radius: 19px; white-space: pre-wrap; word-wrap: break-word; }
+  .them .bubble { background: var(--them); color: var(--them-text); border-bottom-left-radius: 6px; }
+  .me .bubble { background: var(--me); color: var(--me-text); border-bottom-right-radius: 6px; }
+  .bubble img { display: block; max-width: 100%; border-radius: 12px; }
+  .bubble.img { padding: 0; background: none !important; }
+  .gap { height: 8px; }
+  .time { align-self: center; font-size: 11px; color: var(--muted); margin: 8px 0 4px; }
+  a { color: inherit; }
+  form { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--bar); backdrop-filter: blur(20px);
+    border-top: .5px solid var(--hair); }
+  input { flex: 1; font: inherit; color: var(--text); background: var(--field); border: .5px solid var(--hair);
+    border-radius: 18px; padding: 7px 14px; outline: none; }
+  button { width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--me); color: #fff;
+    display: grid; place-items: center; cursor: pointer; }
+  button:disabled { opacity: .35; }
+  button svg { width: 16px; height: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="avatar"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z"/></svg></div>
+  <div class="who">Hive</div>
+  <div class="status" id="status">Connecting…</div>
+</header>
+<main id="log"></main>
+<form id="f">
+  <input id="t" placeholder="iMessage" autocomplete="off" autofocus>
+  <button id="send" disabled aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+</form>
+<script>
+  const log = document.getElementById('log'), input = document.getElementById('t'), btn = document.getElementById('send');
+  const statusEl = document.getElementById('status');
+  let ws, lastFrom = null, lastTs = 0;
+  const linkify = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))
+                        .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
+  function add(m) {
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+    if (m.ts - lastTs > 300) {
+      const t = document.createElement('div'); t.className = 'time';
+      t.textContent = new Date(m.ts * 1000).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+      log.appendChild(t);
+    } else if (lastFrom && lastFrom !== m.from) {
+      const g = document.createElement('div'); g.className = 'gap'; log.appendChild(g);
+    }
+    lastFrom = m.from; lastTs = m.ts;
+    const row = document.createElement('div'); row.className = 'row ' + (m.from === 'me' ? 'me' : 'them');
+    if (m.image) {
+      const b = document.createElement('div'); b.className = 'bubble img';
+      const img = document.createElement('img'); img.src = m.image; b.appendChild(img); row.appendChild(b);
+      log.appendChild(row);
+      if (m.text) add({...m, image: null, ts: m.ts});
+    } else {
+      const b = document.createElement('div'); b.className = 'bubble'; b.innerHTML = linkify(m.text || '');
+      row.appendChild(b); log.appendChild(row);
+    }
+    if (atBottom || m.from === 'me') log.scrollTop = log.scrollHeight;
+  }
+  function connect() {
+    ws = new WebSocket(`ws://${location.host}/`);
+    ws.onopen = () => { statusEl.textContent = 'Fake iMessage thread · local'; btn.disabled = !input.value.trim(); };
+    ws.onclose = () => { statusEl.textContent = 'Reconnecting…'; btn.disabled = true; setTimeout(connect, 1500); };
+    ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.t === 'msg') add(m); };
+  }
+  input.addEventListener('input', () => btn.disabled = !input.value.trim() || ws.readyState !== 1);
+  document.getElementById('f').addEventListener('submit', e => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({t: 'send', text})); input.value = ''; btn.disabled = true;
+  });
+  connect();
+</script>
+</body>
+</html>
