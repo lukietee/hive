@@ -62,6 +62,16 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
 | `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
 | `answer` | `{ "agent": id, "choice" }`: the reply to `needs_human` |
+| `deck_viewer` | `{ "x", "y", "w", "h" }`: the native Deck Viewer's big-slide rect at 1× zoom, in screen points. Sent when the viewer appears, moves or resizes, and on (re)connect |
+| `deck_box` | `{ "slide", "label", "x", "y", "w", "h" }`: reply to each `deck_focus`, the focused box's **final on-screen rect after the viewer's zoom**, in screen points. Arrives within ~50 ms of `deck_focus` |
+
+### Deck cursor flow
+The Deck Viewer zooms toward small boxes, so the engine can't compute the screen point from the slide fractions alone. The flow:
+1. The engine emits `deck_focus`.
+2. The engine waits for the matching `deck_box` (same `slide`; time out after ~0.5 s and fall back to mapping the box fractions onto the last `deck_viewer` rect).
+3. The engine runs the usual sync rule on the box center: `moving_to`, wait, then `typing`/`click`.
+
+In `--sim` (no engine), the viewer drives the Deck cursor itself with the same events. When `deck_box` is available, the engine should skip its own `highlight` of style `select` for deck edits, since the viewer already draws the selection handles.
 
 ## Sync rule
 Before a real action, an agent emits `moving_to`, waits `duration_ms`, emits `click` (or `typing`), **then** performs the action. The cursor always arrives before the app reacts.

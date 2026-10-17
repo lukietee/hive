@@ -27,6 +27,8 @@ swift build
 | `Overlay.swift` | Transparent, click-through `.screenSaver`-level windows; cursors (arrow + name tag + caption), eased glides, click ripples, typing bubble, highlights (circle / box / select handles), dashed link lines, `needs_human` pulse ring, `agent_done` flies back into the notch |
 | `Geometry.swift` | Contract coordinates (global, top-left, y down) ⇄ AppKit coordinates; notch size/anchor via `auxiliaryTopLeft/RightArea` + `safeAreaInsets` |
 | `Simulator.swift` | Scripted demo emitting real contract envelopes: 5 agents, Sentry fix, a Checker conflict link, a Deck question, wrap-up + summary |
+| `DeckViewerModel.swift` | Deck Viewer state: handles `deck_loaded` / `deck_focus` / `deck_slide_updated`, fetches `{base}/slide-{i}.png?v={version}`, zoom + anchor math, synthetic slides for `--sim` |
+| `DeckViewer.swift` | Deck Viewer window (bottom-left, floating): thumbnail strip, big slide with crossfades, yellow selection handles; sends `deck_viewer` / `deck_box` so the Deck cursor lands on the edited box. `HIVE_DECK_DEBUG=<dir>` logs geometry and saves window snapshots (no Screen Recording needed) |
 
 ## Implemented
 - [x] All event types in the contract
@@ -38,5 +40,5 @@ swift build
 - **The notch panel can't be clicked** (`ignoresMouseEvents = true`), so it never blocks the menu bar. Answering `needs_human` happens through chat or the engine, not by clicking in the notch.
 - **No commands are sent from the UI yet.** `EngineClient.send` exists but isn't wired to anything.
 - **Not tested on a real notched display** in this session. Check that the notch width/height detection is right and that the top of the black shape lines up flush.
-- **Not built yet:** the iPad mirror pop-up, the phone mirror tile, window dimming/enlarging, the Deck Viewer window, the Call window, and the cursor morphing into the iPadOS pointer.
+- **Not built yet:** the iPad mirror pop-up, the phone mirror tile, window dimming/enlarging, the Call window, and the cursor morphing into the iPadOS pointer.
 - **Highlights and links can't be removed early:** non-sticky ones fade after 2.5s / 4s, and there's no event for removing them sooner.
