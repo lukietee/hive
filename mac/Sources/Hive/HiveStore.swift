@@ -13,7 +13,10 @@ final class HiveStore: ObservableObject {
     @Published var countdown: Int? = nil
     @Published var budget: Budget? = nil
     @Published var summary: SummaryCard? = nil
-    @Published var question: HumanQuestion? = nil
+    @Published var question: HumanQuestion? = nil {
+        // The question can resolve elsewhere (timeout default, phone reply): drop a half-typed answer.
+        didSet { if question == nil, editing == .other { editing = nil; draft = "" } }
+    }
     @Published var lastChat: ChatLine? = nil
     @Published var connected = false
     /// Agents the human paused from the notch (pause/resume commands).
@@ -21,6 +24,10 @@ final class HiveStore: ObservableObject {
     @Published var allPaused = false
     /// Pointer is over the notch panel (Dynamic Island-style peek).
     @Published var hovering = false
+    /// Text field being edited in the notch (goal box or "Other…" answer), if any.
+    @Published var editing: NotchEditing? = nil
+    /// Contents of that field.
+    @Published var draft = ""
     /// Where notch/menu commands go: the engine socket, or the simulator log.
     var onCommand: ((String, [String: Any]) -> Void)?
     let deck = DeckViewerModel()
@@ -31,10 +38,12 @@ final class HiveStore: ObservableObject {
     var notchMode: NotchMode {
         // Collapses to a compact Live Activity unless hovered. A pending question always
         // expands, so the human can answer without hunting for the notch.
-        if summary != nil { return hovering ? .summary : .compact }
+        // Typing keeps it open even when the pointer wanders off.
+        let open = hovering || editing != nil
+        if summary != nil { return open ? .summary : .compact }
         if question != nil { return .expanded }
-        if !order.isEmpty || countdown != nil || budget != nil { return hovering ? .expanded : .compact }
-        return hovering ? .peek : .idle
+        if !order.isEmpty || countdown != nil || budget != nil { return open ? .expanded : .compact }
+        return open ? .peek : .idle
     }
 
     /// Mean progress of the visible agents (for the compact ring).
@@ -61,6 +70,8 @@ final class HiveStore: ObservableObject {
             lastChat = nil
             paused = []
             allPaused = false
+            editing = nil
+            draft = ""
         }
         deck.reset()
     }
@@ -242,7 +253,8 @@ final class HiveStore: ObservableObject {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
             agents[id]?.needsHuman = true
             question = HumanQuestion(agent: id, question: CleanText.strip((d["question"] as? String) ?? "Need your input"),
-                                     options: options.map(CleanText.strip))
+                                     options: options.map(CleanText.strip),
+                                     allowOther: (d["allow_other"] as? Bool) ?? true)
         }
     }
 
