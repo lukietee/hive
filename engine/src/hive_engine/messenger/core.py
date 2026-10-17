@@ -30,7 +30,7 @@ BUS_URL = os.environ.get("HIVE_BUS_URL", "ws://127.0.0.1:8765")
 MODEL = os.environ.get("HIVE_MESSENGER_MODEL", "claude-opus-5-5")
 BATCH_S = float(os.environ.get("HIVE_MESSENGER_BATCH_S", "2.0"))
 # Events that become texts. agent_status / cursor events never do (that's what 👁 live view is for).
-TEXTED = {"chat", "needs_human", "agent_done", "swarm_summary", "call_summary"}
+TEXTED = {"chat", "needs_human", "agent_done", "swarm_summary", "call_ended"}
 ACTIVITY = {"agent_status", "moving_to", "click", "typing", "agent_done"}
 
 
@@ -59,6 +59,8 @@ class Messenger:
         self.names: dict[str, str] = {}          # agent id → display name (from spawns)
         self.active: set[str] = set()            # spawned and not done
         self.questions: dict[str, Question] = {} # pending, by agent
+        self.calls: dict[str, str] = {}          # call_id → who was called ("Bakery")
+        self._said: dict[str, tuple[float, str]] = {}  # agent → (when, call summary just texted)
         self._batch: list[str] = []
         self._batch_task: asyncio.Task | None = None
         self._connected_at = 0.0
@@ -136,6 +138,8 @@ class Messenger:
         if agent and typ in ACTIVITY and agent in self.questions and typ != "agent_done":
             # Answered somewhere else (the notch) — the agent moved on.
             self.questions.pop(agent, None)
+        if typ == "call_started":
+            self.calls[str(d.get("call_id"))] = str(d.get("label") or d.get("to") or "the call")
         if typ == "agent_done" and agent:
             self.active.discard(agent)
             self.questions.pop(agent, None)
@@ -145,7 +149,7 @@ class Messenger:
         name = self.name_of(agent)
         if typ == "chat":
             text = strip_emoji(str(d.get("text", "")))
-            if text:
+            if text and not self._repeat(agent, text):
                 self._queue(prefix(name, text, self._known()))
                 if agent:
                     memory.append(agent, "text_out", text)
@@ -164,10 +168,17 @@ class Messenger:
             lines = [strip_emoji(str(x)) for x in d.get("lines") or []]
             body = "\n".join(f"- {x}" for x in lines if x)
             await self._send(f"Hive: {strip_emoji(str(d.get('title', 'Done')))}" + (f"\n\n{body}" if body else ""))
-        elif typ == "call_summary":
+        elif typ == "call_ended":
             await self.flush()
-            to = d.get("to") or d.get("callee") or "the call"
-            await self.say_as(name, f"Call with {to} ended. {strip_emoji(str(d.get('summary', '')))}".strip(), agent)
+            who = self.calls.pop(str(d.get("call_id")), None) or "the call"
+            summary = strip_emoji(str(d.get("summary", "")))
+            self._said[agent or ""] = (time.time(), summary)  # the agent often chats the same summary next
+            await self.say_as(name, f"Call with {who} ended. {summary}".strip(), agent)
+
+    def _repeat(self, agent: str | None, text: str) -> bool:
+        """True if this chat line just repeats a summary we already texted for the agent."""
+        ts, said = self._said.get(agent or "", (0.0, ""))
+        return bool(said) and time.time() - ts < 30 and (text in said or said in text)
 
     # ---- inbound texts ---------------------------------------------------------------------
     def resolve(self, who: str) -> str | None:
@@ -218,7 +229,7 @@ class Messenger:
         elif agent in self.active:
             await self.command("say", agent=agent, text=text)
             await self.say_as(self.name_of(agent), "On it.", agent)
-        elif memory.has(agent):
+        elif memory.has(agent) or self._call_context(agent):
             await self.say_as(self.name_of(agent), await self._recall(agent, text), agent)
         else:
             await self.say_as("Hive", f"{self.name_of(agent)} isn't running right now.")
@@ -273,16 +284,42 @@ class Messenger:
             log.warning("interpret failed: %s", exc)
         return None
 
+    @staticmethod
+    def _call_context(agent: str) -> str:
+        """Recap of the agent's phone calls (hive_engine.calls.CallMemory), or '' if none."""
+        try:
+            from ..calls import CallMemory
+            mem = CallMemory()
+            return mem.context_text(agent) if mem.history(agent) else ""
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _last_transcript(agent: str) -> str:
+        try:
+            from ..calls import CallMemory
+            last = CallMemory().latest(agent) or {}
+        except Exception:
+            return ""
+        return "\n".join(f"{t.get('speaker')}: {t.get('text')}" for t in last.get("transcript") or [])
+
     async def _recall(self, agent: str, text: str) -> str:
-        """Answer a question about an agent's past work (e.g. a finished call) from its memory."""
+        """Answer a question about an agent's past work (texts + finished calls) from its memory."""
         recs = memory.read(agent, limit=120)
+        calls = self._call_context(agent)
         client = self._claude()
         if not client:
-            last = next((r for r in reversed(recs) if r.get("kind") in ("call_summary", "summary")), None)
-            return (f"Here's what I have: {last['text']}" if last else "I don't have anything on that yet.")
+            try:
+                from ..calls import CallMemory
+                last = (CallMemory().latest(agent) or {}).get("summary", "")
+            except Exception:
+                last = ""
+            last = last or (recs[-1]["text"] if recs else "")
+            return f"From my last call: {last}" if last else "I don't have anything on that yet."
         notes = "\n".join(f"[{r.get('kind')}] {r.get('text')}" for r in recs)
-        prompt = (f"You are {self.name_of(agent)}, one agent in a team of AI agents. Here is your memory "
-                  f"(texts, call transcripts and summaries):\n{notes}\n\nThe human now texts you: {text!r}\n"
+        prompt = (f"You are {self.name_of(agent)}, one agent in a team of AI agents. Your phone calls:\n"
+                  f"{calls or '(none)'}\nTranscript of your latest call:\n{self._last_transcript(agent) or '(none)'}\n\n"
+                  f"Your texts with the human:\n{notes or '(none)'}\n\nThe human now texts you: {text!r}\n"
                   "Reply in one or two short plain-text sentences, like a text message, without a name prefix. "
                   "If your memory doesn't cover it, say so.")
         try:

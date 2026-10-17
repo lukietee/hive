@@ -1,14 +1,13 @@
-"""Per-agent memory: one JSON line per record in engine/memory/<agent>.jsonl (gitignored).
+"""Per-agent text memory: one JSON line per record in engine/state/messages/<agent>.jsonl (gitignored).
 
-Anything that should be remembered across channels goes here: the iMessage thread (what the human
-texted an agent, what it texted back) and phone calls (transcripts and summaries from the Caller).
-That is what lets a voice agent "remember the call" when the conversation moves to text.
+The iMessage side of an agent's memory: what the human texted it and what it texted back. Phone calls
+live next to it in engine/state/calls/<agent>.json (hive_engine.calls.CallMemory). The Messenger reads
+both, so a voice agent "remembers the call" when the conversation moves to text.
 
 Record shape (extra keys allowed):
-    {"ts": 1792260000.1, "agent": "cake", "kind": "call_summary" | "call_transcript" | "text_in" | "text_out",
-     "text": "...", ...}
+    {"ts": 1792260000.1, "agent": "cake", "kind": "text_in" | "text_out", "text": "...", ...}
 
-HIVE_MEMORY_DIR overrides the location.
+HIVE_MEMORY_DIR overrides the location (else $HIVE_STATE_DIR/messages).
 """
 
 from __future__ import annotations
@@ -19,7 +18,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-MEMORY_DIR = Path(os.environ.get("HIVE_MEMORY_DIR") or Path(__file__).resolve().parents[2] / "memory")
+MEMORY_DIR = Path(os.environ.get("HIVE_MEMORY_DIR")
+                  or Path(os.environ.get("HIVE_STATE_DIR") or Path(__file__).resolve().parents[2] / "state") / "messages")
 
 
 def _path(agent: str) -> Path:
