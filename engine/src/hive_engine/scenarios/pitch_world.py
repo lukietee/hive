@@ -157,6 +157,33 @@ def start_world_server(workspace: Path, port: int = WORLD_PORT) -> ThreadingHTTP
     return server
 
 
+def image_size(path: Path) -> tuple[int, int]:
+    import pymupdf as fitz
+
+    pix = fitz.Pixmap(str(path))
+    return pix.width, pix.height
+
+
+def market_chart(png: Path, chosen: str) -> Path:
+    """Two-bar chart ($2B vs $4B) in the deck's colors; the chosen estimate is highlighted."""
+    import pymupdf as fitz
+
+    bg, matcha, muted, cream = (0.09, 0.125, 0.10), (0.553, 0.749, 0.353), (0.30, 0.36, 0.32), (0.965, 0.945, 0.906)
+    doc = fitz.open()
+    page = doc.new_page(width=800, height=620)
+    page.draw_rect(page.rect, color=None, fill=bg)
+    for i, (label, v) in enumerate([("Matcha only", 2), ("Matcha + specialty tea", 4)]):
+        x0, y1 = 130 + i * 320, 500
+        y0 = y1 - v / 4 * 360
+        page.draw_rect(fitz.Rect(x0, y0, x0 + 200, y1), color=None, fill=matcha if f"${v}B" == chosen else muted)
+        page.insert_text((x0 + 52, y0 - 18), f"${v}B", fontsize=44, color=cream)
+        page.insert_text((x0, 548), label, fontsize=22, color=cream)
+    page.insert_text((130, 595), "US spend, ages 18-24 (illustrative)", fontsize=16, color=(0.66, 0.71, 0.67))
+    page.get_pixmap(dpi=144).save(png)
+    doc.close()
+    return png
+
+
 def svg_to_png(svg: Path, png: Path, size: int = 512) -> Path:
     import pymupdf as fitz
 

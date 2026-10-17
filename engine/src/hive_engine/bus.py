@@ -39,8 +39,9 @@ class Bus:
         self.agents: dict[str, Agent] = {}
         # Messages from the human not addressed to a specific agent (e.g. "@everyone ...").
         self.conductor_inbox: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        self.on_start: Callable[[str], Awaitable[None]] | None = None
-        self.running = False  # set by scenarios that should ignore a second {"cmd": "start"}
+        # Runs a scenario by name on {"cmd": "start"}; set by __main__. args = the command's args.
+        self.on_start: Callable[[str, dict[str, Any]], Awaitable[Any]] | None = None
+        self.running: str | None = None  # name of the scenario in progress; a second "start" is rejected
         self.history: list[dict[str, Any]] = []  # replayed to late joiners (spawns etc.)
         self._server = None
 
@@ -58,12 +59,37 @@ class Bus:
     def emit(self, agent: str | None, type_: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
         event = {"v": 1, "ts": round(time.time(), 3), "agent": agent, "type": type_, "data": data or {}}
         msg = json.dumps(event, ensure_ascii=False)
-        if type_ in ("agent_spawn", "budget", "countdown"):
+        if type_ in ("budget", "countdown"):  # only the latest one matters to a late joiner
+            self.history = [e for e in self.history if e["type"] != type_] + [event]
+        elif type_ == "agent_spawn":
             self.history.append(event)
         elif type_ == "agent_done":
             self.history = [e for e in self.history if not (e["type"] == "agent_spawn" and e["agent"] == agent)]
         broadcast(self.clients, msg)
         return event
+
+    # ---- runs ------------------------------------------------------------
+    async def run_exclusive(self, name: str, factory: Callable[[], Awaitable[Any]]) -> Any:
+        """Runs one scenario at a time: fresh agent registry + history, `running` set throughout."""
+        if self.running and self.running != name:
+            raise RuntimeError(f"{self.running} is already running")
+        self.running = name
+        self.agents.clear()
+        self.history.clear()
+        try:
+            return await factory()
+        finally:
+            self.running = None
+
+    async def _run_start(self, name: str, args: dict[str, Any]) -> None:
+        assert self.on_start
+        try:
+            await self.on_start(name, args)
+        except Exception as exc:  # report, never crash the bus
+            log.exception("scenario %s failed", name)
+            self.emit(None, "chat", {"text": f"🐝 Hive: {name} failed: {exc}"})
+        finally:
+            self.running = None
 
     # ---- agents ----------------------------------------------------------
     def register(self, agent: Agent) -> None:
@@ -92,10 +118,14 @@ class Bus:
         agents = [self.agents[target]] if target in self.agents else list(self.agents.values())
 
         if cmd == "start":
+            name = args.get("scenario") or "pitch_in_5"
             if self.running:
-                log.info("start ignored: a scenario is already running")
+                self.emit(None, "chat", {"text": f"🐝 Hive: {self.running} is already running, so I ignored that start."})
             elif self.on_start:
-                asyncio.create_task(self.on_start(args.get("scenario", "demo_sim")))
+                self.running = name  # set synchronously so a double-click can't start two runs
+                asyncio.create_task(self._run_start(name, args))
+            else:
+                log.warning("start ignored: no on_start handler")
         elif cmd == "pause":
             for a in agents:
                 a.pause()
