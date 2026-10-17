@@ -96,7 +96,8 @@ final class DeckViewerController {
     /// A box (slide fractions) on screen, after the viewer's zoom for that box.
     func screenRect(forBox box: CGRect, zoom: CGFloat) -> CGRect? {
         guard let stage = stageScreenRect else { return nil }
-        let z = DeckViewerModel.zoomedRect(box: box, zoom: zoom, in: stage.size)
+        let anchor = DeckViewerModel.anchor(for: box, zoom: zoom)
+        let z = DeckViewerModel.zoomedRect(box: box, zoom: zoom, anchor: anchor, in: stage.size)
         return z.offsetBy(dx: stage.minX, dy: stage.minY)
     }
 
@@ -106,7 +107,15 @@ final class DeckViewerController {
     }
 
     private func focused(_ f: DeckViewerModel.Focus) {
-        guard let r = screenRect(forBox: f.box, zoom: DeckViewerModel.zoom(for: f.box)) else { return }
+        guard let r = screenRect(forBox: f.box, zoom: DeckViewerModel.zoom(for: f.box)) else {
+            deckLog("focus slide \(f.slide): viewer not on screen yet (stage \(model.stageRectInWindow), visible \(window?.isVisible ?? false))")
+            return
+        }
+        if Self.debugDir != nil {
+            deckLog("focus slide \(f.slide) box \(f.box) → screen \(r) · stage \(stageScreenRect ?? .zero) · window \(window?.frame ?? .zero)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.snapshot("focus-\(f.slide)") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in self?.snapshot("after-\(f.slide)") }
+        }
         if store.connected {
             send("deck_box", ["slide": f.slide, "label": f.label,
                               "x": r.minX.rounded2, "y": r.minY.rounded2, "w": r.width.rounded2, "h": r.height.rounded2])
@@ -118,6 +127,23 @@ final class DeckViewerController {
                 self?.store.handle(["v": 1, "agent": "deck", "type": "click", "data": ["x": r.midX, "y": r.midY]])
             }
         }
+    }
+}
+
+extension DeckViewerController {
+    /// HIVE_DECK_DEBUG=/some/dir → log geometry and save PNG snapshots of the viewer window.
+    /// Uses the window's own backing store, so it works without Screen Recording permission.
+    static let debugDir: URL? = ProcessInfo.processInfo.environment["HIVE_DECK_DEBUG"].map { URL(fileURLWithPath: $0) }
+
+    func snapshot(_ name: String) {
+        guard let dir = Self.debugDir, let view = window?.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("\(name).png")
+        try? png.write(to: url)
+        deckLog("snapshot \(url.path)")
     }
 }
 
@@ -160,11 +186,6 @@ enum DeckLayout {
     static let yellow = Color(red: 1, green: 0.8, blue: 0)
 }
 
-private struct StageRectKey: PreferenceKey {
-    static let defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
-}
-
 struct DeckViewerView: View {
     @ObservedObject var model: DeckViewerModel
     @ObservedObject var store: HiveStore
@@ -184,9 +205,6 @@ struct DeckViewerView: View {
             RoundedRectangle(cornerRadius: DeckLayout.corner, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
         )
-        .onPreferenceChange(StageRectKey.self) { rect in
-            MainActor.assumeIsolated { model.stageRectInWindow = rect }
-        }
     }
 
     // Header: who's editing what.
@@ -247,7 +265,10 @@ struct DeckViewerView: View {
                 .frame(width: size.width, height: size.height)
                 .background(
                     GeometryReader { s in
-                        Color.clear.preference(key: StageRectKey.self, value: s.frame(in: .global))
+                        let frame = s.frame(in: .global)
+                        Color.clear
+                            .onAppear { model.stageRectInWindow = frame }
+                            .onChange(of: frame) { _, new in model.stageRectInWindow = new }
                     }
                 )
                 .position(x: g.size.width / 2, y: g.size.height / 2)
@@ -287,7 +308,7 @@ private struct DeckStage: View {
             .clipped()
 
             if let f = model.focus, f.slide == model.current {
-                let r = DeckViewerModel.zoomedRect(box: f.box, zoom: model.zoom, in: size)
+                let r = DeckViewerModel.zoomedRect(box: f.box, zoom: model.zoom, anchor: model.zoomAnchor, in: size)
                 SelectionHandles(label: f.label)
                     .frame(width: max(r.width, 4), height: max(r.height, 4))
                     .position(x: r.midX, y: r.midY)

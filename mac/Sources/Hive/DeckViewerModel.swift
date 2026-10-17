@@ -108,8 +108,8 @@ final class DeckViewerModel: ObservableObject {
         withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.35)) {
             current = slide
             focus = f
-            zoomAnchor = UnitPoint(x: box.midX, y: box.midY)
             zoom = Self.zoom(for: box)
+            zoomAnchor = Self.anchor(for: box, zoom: zoom)
         }
         onFocus?(f)
     }
@@ -136,19 +136,39 @@ final class DeckViewerModel: ObservableObject {
 
     // MARK: - Geometry
 
-    /// Zoom factor that makes a small box readable; full-width boxes stay at 1×.
+    /// Margin (fraction of the slide) the zoomed box keeps from the stage edges.
+    static let zoomMargin: CGFloat = 0.05
+
+    /// Zoom factor that makes a small box readable; big boxes stay at 1×, and the
+    /// zoomed box always fits inside the stage (with a margin).
     static func zoom(for box: CGRect) -> CGFloat {
         let biggest = max(box.width, box.height, 0.01)
-        return min(1.6, max(1.0, 0.62 / biggest))
+        let fit = (1 - 2 * zoomMargin) / biggest
+        return min(1.6, fit, max(1.0, 0.62 / biggest))
+    }
+
+    /// Zoom anchor (fractions) that keeps the zoomed box inside the stage: as close to the
+    /// box's center as possible, shifted inward when the box sits near an edge.
+    static func anchor(for box: CGRect, zoom s: CGFloat) -> UnitPoint {
+        guard s > 1.0001 else { return UnitPoint(x: box.midX, y: box.midY) }
+        func axis(_ lo: CGFloat, _ hi: CGFloat) -> CGFloat {
+            // Mapping p → a + (p − a)·s; keep lo' ≥ m and hi' ≤ 1 − m.
+            let minA = (hi * s - (1 - zoomMargin)) / (s - 1)
+            let maxA = (lo * s - zoomMargin) / (s - 1)
+            let c = (lo + hi) / 2
+            return min(max(c, min(minA, maxA)), max(minA, maxA))
+        }
+        return UnitPoint(x: axis(box.minX, box.maxX), y: axis(box.minY, box.maxY))
     }
 
     /// Where `box` (slide fractions) ends up inside a stage of `size` once zoomed by `zoom`
-    /// around the box's center, clipped to the stage. Same math the view uses.
-    static func zoomedRect(box: CGRect, zoom: CGFloat, in size: CGSize) -> CGRect {
-        let center = CGPoint(x: box.midX * size.width, y: box.midY * size.height)
-        let w = box.width * size.width * zoom
-        let h = box.height * size.height * zoom
-        let r = CGRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h)
+    /// around `anchor`, clipped to the stage. Same math the view's scaleEffect uses.
+    static func zoomedRect(box: CGRect, zoom s: CGFloat, anchor: UnitPoint, in size: CGSize) -> CGRect {
+        let ax = anchor.x * size.width, ay = anchor.y * size.height
+        let r = CGRect(x: ax + (box.minX * size.width - ax) * s,
+                       y: ay + (box.minY * size.height - ay) * s,
+                       width: box.width * size.width * s,
+                       height: box.height * size.height * s)
         return r.intersection(CGRect(origin: .zero, size: size))
     }
 
@@ -241,8 +261,9 @@ enum SyntheticDeck {
             .font: NSFont.systemFont(ofSize: filled ? 40 : 34, weight: filled ? .semibold : .regular),
             .foregroundColor: filled ? NSColor(calibratedWhite: 0.15, alpha: 1) : NSColor(calibratedWhite: 0.6, alpha: 1),
         ]
-        let box = NSRect(x: bodyBox.minX * size.width, y: (1 - bodyBox.maxY) * size.height,
-                         width: bodyBox.width * size.width, height: bodyBox.height * size.height)
+        let b = slide == 4 ? statBox : bodyBox
+        let box = NSRect(x: b.minX * size.width, y: (1 - b.maxY) * size.height,
+                         width: b.width * size.width, height: b.height * size.height)
         if !filled {
             NSColor(calibratedWhite: 0.85, alpha: 1).setStroke()
             let dash = NSBezierPath(rect: box.insetBy(dx: 2, dy: 2))

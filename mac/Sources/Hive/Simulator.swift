@@ -82,8 +82,20 @@ final class Simulator {
                labels: ["editing signup.ts", "running tests"], seed: 1)
         wander("web", from: 3.4, to: 17, every: 1.5, x: 0.55...0.92, y: 0.16...0.48,
                labels: ["hero", "pricing", "waitlist form"], seed: 2)
-        wander("deck", from: 3.8, to: 21, every: 1.8, x: 0.08...0.44, y: 0.58...0.92,
-               labels: ["slide 3", "slide 5", "slide 7"], seed: 3)
+
+        // Deck: the Deck Viewer opens and fills blank slides (cursor driven by the viewer in --sim).
+        let body = SyntheticDeck.bodyBox
+        let stat = SyntheticDeck.statBox
+        func boxArr(_ b: CGRect) -> [Double] { [b.minX, b.minY, b.width, b.height].map { Double($0) } }
+        add(1.3, "deck", "deck_loaded", ["slides": SyntheticDeck.content.count, "base": "sim://deck", "version": 1])
+        var deckVersion = 1
+        for (i, (t, slide, label)) in [(4.0, 0, "slide 1 · tagline"), (8.0, 1, "slide 2 · problem"),
+                                       (12.0, 2, "slide 3 · solution"), (16.5, 3, "slide 4 · pricing")].enumerated() {
+            add(t, "deck", "deck_focus", ["slide": slide, "box": boxArr(body), "label": label])
+            add(t + 0.9, "deck", "typing", ["text": SyntheticDeck.content[slide].done])
+            deckVersion += 1
+            add(t + 1.6, "deck", "deck_slide_updated", ["slide": slide, "version": deckVersion, "render_ms": 560 + i * 17])
+        }
 
         add(6.0, "web", "highlight", merge(pt(0.56, 0.17), ["w": r.width * 0.34, "h": r.height * 0.10, "style": "box"]))
         add(6.4, "web", "agent_status", ["text": "Hero fixed ✓ · pricing next", "progress": 0.35])
@@ -103,8 +115,8 @@ final class Simulator {
         add(15.6, "fixer", "chat", ["text": "Patched ✓ redeploying"])
 
         // Deck: selection handles while it fills slides.
-        add(14.0, "deck", "highlight", merge(pt(0.10, 0.62), ["w": r.width * 0.30, "h": r.height * 0.09, "style": "select"]))
-        add(16.0, "deck", "agent_status", ["text": "Slide 5: screenshots in", "progress": 0.5])
+        add(9.8, "deck", "agent_status", ["text": "Slide 2 done ✓", "progress": 0.35])
+        add(18.4, "deck", "agent_status", ["text": "Slide 4 done ✓", "progress": 0.6])
 
         // Checker: price mismatch between the site and the deck.
         add(18.0, "checker", "moving_to", merge(pt(0.76, 0.32), ["duration_ms": 700, "label": "site pricing"]))
@@ -116,14 +128,15 @@ final class Simulator {
         add(21.5, "web", "agent_status", ["text": "Pricing → $29", "progress": 0.8])
 
         // Deck asks the human.
-        add(22.5, "deck", "needs_human", ["question": "Slide 6 market size?", "options": ["$2B", "$4B"]])
+        add(22.5, "deck", "needs_human", ["question": "Slide 5 market size?", "options": ["$2B", "$4B"]])
         add(27.0, "deck", "agent_status", ["text": "Using $4B ✓", "progress": 0.9])
-        add(27.2, "deck", "moving_to", merge(pt(0.22, 0.70), ["duration_ms": 400, "label": "slide 6"]))
-        add(27.8, "deck", "typing", merge(pt(0.22, 0.70), ["text": "$4B market"]))
+        add(27.2, "deck", "deck_focus", ["slide": 4, "box": boxArr(stat), "label": "slide 5 · market size"])
+        add(28.0, "deck", "typing", ["text": "$4B market"])
+        add(28.6, "deck", "deck_slide_updated", ["slide": 4, "version": deckVersion + 1, "render_ms": 571])
 
         // Wrap up.
         add(29.0, "web", "agent_status", ["text": "Deployed ✓ pitchin5.xyz", "progress": 1.0])
-        add(30.0, "deck", "agent_status", ["text": "10/10 slides ✓", "progress": 1.0])
+        add(30.0, "deck", "agent_status", ["text": "All slides ✓", "progress": 1.0])
         add(30.5, "builder", "agent_status", ["text": "Feature shipped ✓", "progress": 1.0])
         add(31.0, "checker", "agent_status", ["text": "All consistent ✓", "progress": 1.0])
 
