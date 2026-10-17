@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var simulator: Simulator!
     private var notch: NotchPanelController!
     private var deckViewer: DeckViewerController!
+    private var callWindow: CallWindowController!
     private var overlays: [OverlayWindow] = []
     private var statusItem: NSStatusItem?
     private var pauseItem: NSMenuItem?
@@ -20,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         simulator = Simulator(store: store)
         store.onCommand = { [weak self] cmd, args in self?.route(cmd, args) }
         deckViewer = DeckViewerController(store: store) { [weak self] cmd, args in self?.client.send(cmd: cmd, args: args) }
+        callWindow = CallWindowController(model: store.call)
 
         buildOverlays()
         notch = NotchPanelController(store: store)

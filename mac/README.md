@@ -43,6 +43,7 @@ The panel is click-through everywhere except over the black shape you can see, s
 | `Simulator.swift` | Scripted demo emitting real contract envelopes: 5 agents, Sentry fix, a Checker conflict link, a Deck question, wrap-up + summary |
 | `DeckViewerModel.swift` | Deck Viewer state: handles `deck_loaded` / `deck_focus` / `deck_slide_updated`, fetches `{base}/slide-{i}.png?v={version}`, zoom + anchor math, synthetic slides for `--sim` |
 | `DeckViewer.swift` | Deck Viewer window (bottom-left, floating): thumbnail strip, big slide with crossfades, yellow selection handles; sends `deck_viewer` / `deck_box` so the Deck cursor lands on the edited box. `HIVE_DECK_DEBUG=<dir>` logs geometry and saves window snapshots (no Screen Recording needed) |
+| `CallWindow.swift` | Call window (top-right, floating): caller ID, AI-call/recorded pill, timer, waveform, live caption bubbles, summary card on `call_ended`. `HIVE_CALL_DEBUG=1` logs call events. `CallSnapshots.swift` adds it to `--snapshot` |
 
 ## Implemented
 - [x] All event types in the contract
