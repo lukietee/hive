@@ -21,7 +21,7 @@ from .bus import Bus
 from .env import load_env
 from .http_server import start_http
 
-SCENARIOS = ("demo_sim", "deck_sim", "pitch_in_5", "call_sim")
+SCENARIOS = ("demo_sim", "deck_sim", "pitch_in_5", "call_sim", "goal")
 
 
 async def run_scenario(bus: Bus, name: str, render_dir: Path, **opts) -> dict:
@@ -37,6 +37,9 @@ async def run_scenario(bus: Bus, name: str, render_dir: Path, **opts) -> dict:
     if name == "call_sim":
         from .scenarios import call_sim
         return await call_sim.run(bus, **opts)
+    if name == "goal":  # dynamic orchestrator: any goal → Conductor plans the team
+        from .orchestrator import runner
+        return await runner.run(bus, render_dir=render_dir, **opts)
     raise ValueError(f"unknown scenario {name!r}; choose from {SCENARIOS}")
 
 
@@ -47,12 +50,15 @@ async def amain(args: argparse.Namespace) -> None:
     http = start_http(render_dir)
     print("bus ws://127.0.0.1:8765 · http http://127.0.0.1:8766  (viewer: /viewer/index.html)", flush=True)
     cli_opts = {"rounds": args.rounds, "fast": args.fast, "auto_human": args.auto_human, "tts": args.tts}
+    if args.goal:
+        cli_opts |= {"goal": args.goal, "workspace": args.workspace, "urls": args.url or []}
     if args.answer_timeout is not None:
         cli_opts["answer_timeout"] = args.answer_timeout
 
     async def start(name: str, cmd_args: dict) -> None:
         # Options from the start command override the CLI's (e.g. {"scenario": "pitch_in_5", "fast": true}).
-        opts = cli_opts | {k: cmd_args[k] for k in ("fast", "auto_human", "answer_timeout", "tts") if k in cmd_args}
+        opts = cli_opts | {k: cmd_args[k] for k in ("fast", "auto_human", "answer_timeout", "tts", "goal",
+                                                    "workspace", "urls") if k in cmd_args}
         result = await bus.run_exclusive(name, lambda: run_scenario(bus, name, render_dir, **opts))
         print(json.dumps(result, indent=2, default=str), flush=True)
 
@@ -88,9 +94,14 @@ def main() -> None:
     p.add_argument("--answer-timeout", type=float, default=None,
                    help="pitch_in_5: seconds before a question takes its default answer (default 8)")
     p.add_argument("--tts", action="store_true", help="call_sim: voice the simulated call with ElevenLabs TTS")
+    p.add_argument("--goal", help="run the dynamic orchestrator on this goal (implies --scenario goal)")
+    p.add_argument("--workspace", help="goal: folder the agents work on (a temp copy), e.g. ../demo-world")
+    p.add_argument("--url", action="append", help="goal: a URL the Conductor should know about (repeatable)")
     p.add_argument("--render-dir", default=str(Path(tempfile.gettempdir()) / "hive_render"))
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()
+    if args.goal:
+        args.scenario = "goal"
     load_env()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(message)s")
