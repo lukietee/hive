@@ -42,7 +42,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `typing` | `{ "x", "y", "text" }` | Show a small typing indicator by the cursor |
 | `highlight` | `{ "x", "y", "w", "h", "style": "circle" \| "box" \| "select" }` | Draw a circle, box or selection handles (fade out after 2.5s unless `"sticky": true`) |
 | `link` | `{ "from": [x,y], "to": [x,y], "text"? }` | Draw a line between two points (Checker conflicts) |
-| `needs_human` | `{ "question", "options": [..] }` | Pulse the cursor; show the question in the notch |
+| `needs_human` | `{ "question", "options": [..], "allow_other"?: true }` | Pulse the cursor; show the question card in the notch. `allow_other` (default `true`) adds an "Other…" button for a typed answer |
 | `chat` | `{ "text" }` | (For the chat relay; the app may show it in the notch) |
 | `agent_done` | `{ "summary"? }` | Cursor flies back into the notch and disappears |
 | `swarm_summary` | `{ "title", "lines": [..] }` | Show the summary card in the notch |
@@ -58,10 +58,10 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 ```
 | cmd | args |
 |---|---|
-| `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim", "fast"?, "auto_human"?, "answer_timeout"? }`. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
+| `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim" \| "goal", "goal"?, "fast"?, "auto_human"?, "answer_timeout"? }`. `scenario: "goal"` carries the human's typed `goal` (notch "Ask Hive to…" box) for the dynamic orchestrator. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
 | `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
 | `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
-| `answer` | `{ "agent": id, "choice" }`: the reply to `needs_human` |
+| `answer` | `{ "agent": id, "choice", "free_text"?: true }`: the reply to `needs_human`. `free_text: true` means the human typed `choice` via "Other…" instead of picking an option; interpret it rather than matching it to an option |
 | `deck_viewer` | `{ "x", "y", "w", "h" }`: the native Deck Viewer's big-slide rect at 1× zoom, in screen points. Sent when the viewer appears, moves or resizes, and on (re)connect |
 | `deck_box` | `{ "slide", "label", "x", "y", "w", "h" }`: reply to each `deck_focus`, the focused box's **final on-screen rect after the viewer's zoom**, in screen points. Arrives within ~50 ms of `deck_focus` |
 

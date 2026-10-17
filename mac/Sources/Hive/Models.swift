@@ -136,6 +136,15 @@ struct HumanQuestion {
     var agent: String
     var question: String
     var options: [String]
+    /// Show an "Other…" button that lets the human type their own answer.
+    var allowOther: Bool = true
+}
+
+/// Which notch text field the human is typing into. While non-nil the panel takes key
+/// focus and the notch stays open even if the pointer leaves.
+enum NotchEditing: Equatable {
+    case goal    // "Ask Hive to…" → start {scenario: "goal", goal}
+    case other   // free-text answer to the open question → answer {free_text: true}
 }
 
 struct Budget {
