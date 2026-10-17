@@ -58,7 +58,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 ```
 | cmd | args |
 |---|---|
-| `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim" }` |
+| `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim", "fast"?, "auto_human"?, "answer_timeout"? }`. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
 | `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
 | `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
 | `answer` | `{ "agent": id, "choice" }`: the reply to `needs_human` |

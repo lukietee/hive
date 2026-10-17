@@ -65,14 +65,32 @@ class DeckAgent(Agent):
                 return s  # match by placeholder text, e.g. "TODO: market size"
         raise KeyError(f"shape {key!r} not found")
 
-    async def _focus(self, slide_idx: int, box: list[float], label: str) -> None:
+    async def focus_rect(self, slide_idx: int, box: list[float], label: str,
+                         settle: float = 0.0) -> tuple[tuple[float, float, float, float] | None, bool]:
+        """Emit deck_focus and find where that box is on screen. Returns (rect, native):
+        native Deck Viewer's deck_box reply (waits ≤0.5s) → else `screen_mapper` (stopgap Chrome viewer,
+        measured after `settle` s of zoom) → else the box fractions on the last `deck_viewer` rect → else None."""
+        mark = self.bus.deck_box_mark()
         self.emit("deck_focus", slide=slide_idx, box=[round(b, 4) for b in box], label=label)
+        if self.bus.deck_viewer is not None or not self.screen_mapper:
+            rect = await self.bus.wait_deck_box(slide_idx, mark, 0.5)
+            if rect:
+                return rect, True
         if self.screen_mapper:
-            x, y, w, h = await self.screen_mapper(*box)
+            await asyncio.sleep(settle)
+            return await self.screen_mapper(*box), False
+        if v := self.bus.deck_viewer:
+            fx, fy, fw, fh = box
+            return (v["x"] + fx * v["w"], v["y"] + fy * v["h"], fw * v["w"], fh * v["h"]), True
+        return None, False
+
+    async def _focus(self, slide_idx: int, box: list[float], label: str) -> None:
+        rect, native = await self.focus_rect(slide_idx, box, label)
+        if rect:
+            x, y, w, h = rect
             await self.move_to(x + w / 2, y + h / 2, 400, label)
-            self.highlight(x, y, w, h, style="select")
-        else:
-            await asyncio.sleep(0.4)
+            if not native:  # the native viewer draws its own selection handles
+                self.highlight(x, y, w, h, style="select")
 
     # ---- steps ---------------------------------------------------------------
     async def set_text(self, slide_idx: int, shape_key, text: str, label: str | None = None) -> None:
