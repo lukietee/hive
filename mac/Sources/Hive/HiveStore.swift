@@ -29,9 +29,18 @@ final class HiveStore: ObservableObject {
     private var chatToken = 0
 
     var notchMode: NotchMode {
-        if summary != nil { return .summary }
-        if !order.isEmpty || countdown != nil || budget != nil || question != nil { return .expanded }
+        // Collapses to a compact Live Activity unless hovered. A pending question always
+        // expands, so the human can answer without hunting for the notch.
+        if summary != nil { return hovering ? .summary : .compact }
+        if question != nil { return .expanded }
+        if !order.isEmpty || countdown != nil || budget != nil { return hovering ? .expanded : .compact }
         return hovering ? .peek : .idle
+    }
+
+    /// Mean progress of the visible agents (for the compact ring).
+    var overallProgress: Double {
+        let ps = visibleAgents.map { $0.progress ?? 0 }
+        return ps.isEmpty ? 0 : ps.reduce(0, +) / Double(ps.count)
     }
 
     var visibleAgents: [AgentState] {

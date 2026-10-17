@@ -156,5 +156,6 @@ struct ChatLine {
 
 enum NotchMode: Equatable {
     /// peek = idle + hovered: shows the Start controls.
-    case idle, peek, expanded, summary
+    /// compact = work in progress but not hovered: a slim Live Activity around the notch.
+    case idle, peek, compact, expanded, summary
 }

@@ -11,14 +11,23 @@ enum NotchSnapshots {
         let states: [(String, (HiveStore) -> Void)] = [
             ("1-idle", { _ in }),
             ("2-peek", { s in s.connected = true; s.hovering = true }),
-            ("3-working", { s in populate(s); s.handle(ev("chat", "web", ["text": "🔵 Pricing section filled in"])) }),
+            ("3-working", { s in populate(s); s.hovering = true; s.handle(ev("chat", "web", ["text": "🔵 Pricing section filled in"])) }),
+            ("3b-compact", { s in populate(s) }),
+            ("3c-compact-party", { s in
+                for id in ["guests", "cake", "food", "treasurer", "caller"] { s.handle(ev("agent_spawn", id, [:])) }
+                s.handle(ev("budget", "treasurer", ["spent": 62, "total": 150, "caps": [:]]))
+            }),
             ("4-question", { s in
                 populate(s)
                 s.handle(ev("needs_human", "checker", ["question": "The site says $39 but the deck says $29. Which price is right?",
                                                         "options": ["$29", "$39"]]))
             }),
-            ("5-paused", { s in populate(s); s.paused = ["social"] }),
+            ("5-paused", { s in populate(s); s.hovering = true; s.paused = ["social"] }),
+            ("6b-summary-compact", { s in
+                s.handle(ev("swarm_summary", "", ["title": "Pitch ready", "lines": []]))
+            }),
             ("6-summary", { s in
+                s.hovering = true
                 s.handle(ev("swarm_summary", "", ["title": "Pitch ready with 1:50 to spare", "lines": [
                     "🔴 Fixer: 5/5 tests passing", "🔵 Web: hero, logo, pricing and waitlist fixed",
                     "🟡 Deck: 10/10 slides, market size $4B", "🟣 Social: launch post drafted (212 chars)",
@@ -31,6 +40,7 @@ enum NotchSnapshots {
                     s.handle(ev("agent_status", id, ["text": st, "progress": p]))
                 }
                 s.handle(ev("budget", "treasurer", ["spent": 62, "total": 150, "caps": [:]]))
+                s.hovering = true
             }),
         ]
         let size = NotchPanelController.panelSize

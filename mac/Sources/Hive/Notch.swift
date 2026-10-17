@@ -114,6 +114,7 @@ enum NotchMetrics {
     static let summaryHeader: CGFloat = 30
     static let summaryLine: CGFloat = 24
     static let peekRow: CGFloat = 34
+    static let compactWing: CGFloat = 96      // width of each side of the compact Live Activity
 
     static func gridHeight(agents n: Int) -> CGFloat {
         let rows = CGFloat((n + 1) / 2)
@@ -130,6 +131,8 @@ enum NotchLayout {
         switch store.notchMode {
         case .idle:
             return CGSize(width: notch.width + 2 * M.flare, height: notch.height)
+        case .compact:
+            return CGSize(width: notch.width + 2 * (M.flare + M.compactWing), height: notch.height)
         case .peek:
             return CGSize(width: max(notch.width + 240, 420), height: top + M.peekRow + M.bottomPad)
         case .expanded:
@@ -208,11 +211,16 @@ struct NotchView: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
-                NotchShape(bottomRadius: mode == .idle ? 12 : 30)
+                NotchShape(bottomRadius: radius)
                     .fill(Color.black)
-                    .shadow(color: .black.opacity(mode == .idle ? 0 : 0.5), radius: 20, y: 8)
+                    .shadow(color: .black.opacity(isSlim ? 0 : 0.5), radius: 20, y: 8)
 
-                if mode != .idle {
+                if mode == .compact {
+                    compactContent
+                        .frame(height: notchSize.height)
+                        .padding(.horizontal, NotchMetrics.flare + 14)
+                        .transition(.opacity)
+                } else if mode != .idle {
                     content
                         .padding(.top, notchSize.height + NotchMetrics.topGap)
                         .padding(.horizontal, NotchMetrics.flare + NotchMetrics.hPad)
@@ -222,7 +230,7 @@ struct NotchView: View {
                 }
             }
             .frame(width: size.width, height: size.height)
-            .clipShape(NotchShape(bottomRadius: mode == .idle ? 12 : 30))
+            .clipShape(NotchShape(bottomRadius: radius))
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -231,6 +239,76 @@ struct NotchView: View {
         .animation(HiveStyle.spring, value: store.question != nil)
         .animation(HiveStyle.spring, value: store.lastChat != nil)
         .environment(\.colorScheme, .dark)
+    }
+
+    private var isSlim: Bool { mode == .idle || mode == .compact }
+    private var radius: CGFloat { isSlim ? 12 : 30 }
+
+    // MARK: Compact (working, not hovered)
+
+    /// Dynamic Island "compact" layout: agents on the leading side of the notch, time or
+    /// budget on the trailing side. The hardware notch covers the middle.
+    private var compactContent: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                if store.summary != nil {
+                    Image(systemName: "checkmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(Color.black, Color.green)
+                        .font(.system(size: 15))
+                } else {
+                    HStack(spacing: -5) {
+                        ForEach(store.visibleAgents.prefix(4)) { a in
+                            AgentBadge(color: a.color, onColor: a.onColor, symbol: a.symbol, size: 18,
+                                       dimmed: store.isPaused(a.id))
+                                .overlay(Circle().stroke(Color.black, lineWidth: 1.5))
+                        }
+                    }
+                    if store.visibleAgents.count > 4 {
+                        Text("+\(store.visibleAgents.count - 4)")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(HiveStyle.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(width: NotchMetrics.compactWing)
+
+            Spacer(minLength: notchSize.width - 28)
+
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                compactTrailing
+            }
+            .frame(width: NotchMetrics.compactWing)
+        }
+    }
+
+    @ViewBuilder
+    private var compactTrailing: some View {
+        if store.summary != nil {
+            Text("Done")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.green)
+        } else if let s = store.countdown {
+            Text(String(format: "%d:%02d", s / 60, s % 60))
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(s <= 30 ? Color.red : HiveStyle.primary)
+                .contentTransition(.numericText(countsDown: true))
+        } else if let b = store.budget {
+            Text(String(format: "$%.0f", b.spent))
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(HiveStyle.primary)
+        } else {
+            ZStack {
+                Circle().stroke(Color.white.opacity(0.15), lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: store.overallProgress)
+                    .stroke(Color.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 15, height: 15)
+        }
     }
 
     @ViewBuilder
