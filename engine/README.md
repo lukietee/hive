@@ -14,7 +14,7 @@ Chrome: the engine launches your installed **Google Chrome** with a fresh tempor
 ```bash
 uv run python -m hive_engine --scenario demo_sim      # 3 agents, 3 real Chrome windows, synced cursor events
 uv run python -m hive_engine --scenario deck_sim      # Deck agent fills a sample deck; viewer opens in Chrome
-uv run python -m hive_engine --scenario demo_sim --wait   # wait for {"cmd":"start"} from a client (e.g. the Mac app)
+uv run python -m hive_engine --scenario demo_sim --wait   # wait for {"cmd":"start"} from a client (the Mac app does NOT send one yet — omit --wait; use --delay N to give the app time to connect)
 uv run python tools/ws_tail.py                         # in another terminal: print every bus event
 ```
 - Bus: `ws://127.0.0.1:8765`
