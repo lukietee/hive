@@ -43,6 +43,11 @@ class Bus:
         self.on_start: Callable[[str, dict[str, Any]], Awaitable[Any]] | None = None
         self.running: str | None = None  # name of the scenario in progress; a second "start" is rejected
         self.history: list[dict[str, Any]] = []  # replayed to late joiners (spawns etc.)
+        # Native Deck Viewer geometry (screen points): its 1× slide rect, and replies to each deck_focus.
+        self.deck_viewer: dict[str, float] | None = None
+        self._deck_box: dict[str, Any] | None = None
+        self._deck_box_seq = 0
+        self._deck_box_changed = asyncio.Event()
         self._server = None
 
     # ---- lifecycle -------------------------------------------------------
@@ -67,6 +72,28 @@ class Bus:
             self.history = [e for e in self.history if not (e["type"] == "agent_spawn" and e["agent"] == agent)]
         broadcast(self.clients, msg)
         return event
+
+    # ---- native Deck Viewer ------------------------------------------------
+    def deck_box_mark(self) -> int:
+        """Call before emitting deck_focus; pass the result to wait_deck_box."""
+        return self._deck_box_seq
+
+    async def wait_deck_box(self, slide: int, since: int, timeout: float = 0.5) -> tuple[float, float, float, float] | None:
+        """The viewer's reply to a deck_focus for `slide` (screen rect after its zoom), or None on timeout."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            box = self._deck_box
+            if self._deck_box_seq > since and box and int(box.get("slide", -1)) == slide:
+                return float(box["x"]), float(box["y"]), float(box["w"]), float(box["h"])
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return None
+            self._deck_box_changed.clear()
+            try:
+                await asyncio.wait_for(self._deck_box_changed.wait(), remaining)
+            except asyncio.TimeoutError:
+                return None
 
     # ---- runs ------------------------------------------------------------
     async def run_exclusive(self, name: str, factory: Callable[[], Awaitable[Any]]) -> Any:
@@ -148,5 +175,11 @@ class Bus:
                 target = next((a.id for a in self.agents.values() if _waiting(a)), None)
             if target in self.agents:
                 self.agents[target].answer(args.get("choice"))
+        elif cmd == "deck_viewer":
+            self.deck_viewer = {k: float(args[k]) for k in ("x", "y", "w", "h")}
+        elif cmd == "deck_box":
+            self._deck_box = args
+            self._deck_box_seq += 1
+            self._deck_box_changed.set()
         else:
             log.warning("unknown command %r", cmd)

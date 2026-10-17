@@ -5,7 +5,8 @@ Runs on a fresh temp COPY of demo-world (see pitch_world.py); the repo is never 
 Windows (2×2, real Chrome on a temp profile, all input over CDP — the OS mouse never moves):
   ① top-left     🔴 Fixer   — editor page: runs `node --test`, patches signup.js, 1 failing → 5/5
   ② top-right    🔵 Web     — the landing page: hero, button, logo, pricing ($39 from an old note), waitlist
-  ③ bottom-left  🟡 Deck    — Deck Viewer: fills slides 3/5/6/7/10 of pitch.pptx (+ logo on 1 and 3)
+  ③ bottom-left  🟡 Deck    — Deck Viewer (the Mac app's native one if it reports deck_viewer, else the
+                              Chrome stopgap): fills slides 3/5/6/7/10 of pitch.pptx (+ logo on 1 and 3)
   ④ bottom-right 🟣 Social  — post composer: drafts the launch post (no real posting)
   overlay        ⚪ Checker — compares site vs deck price, links them, asks the human ($29 by default)
 
@@ -81,11 +82,13 @@ class Handoffs:
 
 @dataclass
 class Opts:
-    pace: float = 2.4            # multiplies every deliberate pause (fast mode: 1.0)
-    type_delay: int = 28         # ms per keystroke for visible typing
+    pace: float = 3.0            # multiplies every deliberate pause (fast mode: 1.0)
+    dwell: float = 3.8           # seconds after each visible action (fast mode: 1.2)
+    glide_ms: int = 650          # ghost-cursor glide duration (fast mode: 400)
+    type_delay: int = 40         # ms per keystroke for visible typing
     answer_timeout: float = 8.0  # seconds before a needs_human question takes its default
     redirect_wait: float = 8.0   # how long Social waits for "@Social make it shorter"
-    target_s: float = 200.0      # the 5:00 countdown is compressed to roughly this many real seconds
+    target_s: float = 175.0      # the 5:00 countdown is compressed to this many real seconds (run ≈ 2:10)
     auto_human: bool = False     # rehearsal: answer questions and send the redirect automatically
 
 
@@ -106,9 +109,21 @@ def price_of(text: str) -> str | None:
 class TrackedBrowserAgent(BrowserAgent):
     """BrowserAgent that records how far each real click landed from the ghost cursor (in points)."""
 
-    def __init__(self, bus: Bus, agent_id: str) -> None:
+    def __init__(self, bus: Bus, agent_id: str, dwell: float = 0.0, glide_ms: int = 350) -> None:
         super().__init__(bus, agent_id)
         self.click_errors: list[float] = []
+        self.dwell = dwell          # pause after every visible action, so people can follow each window
+        self.glide_ms = glide_ms    # ghost-cursor glide duration
+
+    async def point_at(self, locator, style: str = "box", label: str | None = None) -> None:
+        x, y, w, h = await self.screen_rect_for(locator)
+        await self.move_to(x + w / 2, y + h / 2, self.glide_ms, label)
+        self.highlight(x, y, w, h, style=style)
+        await asyncio.sleep(self.dwell)
+
+    async def typing(self, x: float, y: float, text: str, duration_ms: int = 300) -> None:
+        await super().typing(x, y, text, duration_ms)
+        await asyncio.sleep(self.dwell)  # reads as "typing" before the edit lands
 
     async def open(self, browser: Browser, rect: Rect | None = None, url: str | None = None) -> Page:
         # Reuse BrowserAgent.open (it carries the live-view hooks); add the recorder before navigating.
@@ -119,16 +134,18 @@ class TrackedBrowserAgent(BrowserAgent):
             await page.goto(url)
         return page
 
-    async def click(self, locator, label: str | None = None, duration_ms: int = 350) -> None:
-        await super().click(locator, label, duration_ms)
+    async def click(self, locator, label: str | None = None, duration_ms: int | None = None) -> None:
+        await super().click(locator, label, duration_ms or self.glide_ms)
         await self._verify_click()
+        await asyncio.sleep(self.dwell)
 
-    async def type(self, locator, text: str, delay_ms: int = 35, duration_ms: int = 350) -> None:
+    async def type(self, locator, text: str, delay_ms: int = 35, duration_ms: int | None = None) -> None:
         x, y = await self.screen_point_for(locator)
-        await self.typing(x, y, text, duration_ms)
+        await Agent.typing(self, x, y, text, duration_ms or self.glide_ms)
         await locator.click()
         await self._verify_click()
         await locator.press_sequentially(text, delay=delay_ms)
+        await asyncio.sleep(self.dwell)
 
     async def _verify_click(self) -> None:
         assert self.page and self.pos
@@ -162,12 +179,15 @@ class PitchDeck(DeckAgent):
         return dt
 
     async def _focus(self, slide_idx: int, box: list[float], label: str) -> None:
-        self.emit("deck_focus", slide=slide_idx, box=[round(b, 4) for b in box], label=label)
-        await asyncio.sleep(0.5)  # let the viewer finish its zoom before we measure where the shape is
-        if self.screen_mapper:
-            x, y, w, h = await self.screen_mapper(*box)
+        # settle: let the stopgap viewer finish its CSS zoom before measuring (the native one replies with deck_box)
+        rect, native = await self.focus_rect(slide_idx, box, label, settle=0.5)
+        if rect:
+            x, y, w, h = rect
             await self.move_to(x + w / 2, y + h / 2, 450, label)
-            self.highlight(x, y, w, h, style="select")
+            if not native:
+                self.highlight(x, y, w, h, style="select")
+        else:
+            await asyncio.sleep(0.5)
 
     async def fill(self, slide_idx: int, key: str, value: str | list[str], label: str,
                    color: RGBColor = CREAM, bullets: bool = False) -> None:
@@ -209,9 +229,8 @@ class PitchDeck(DeckAgent):
         async with self.lock:
             prs = Presentation(self.pptx)
             box = self._box_frac(prs, self._find_shape(prs.slides[slide_idx], key))
-            self.emit("deck_focus", slide=slide_idx, box=[round(b, 4) for b in box], label=label)
-            await asyncio.sleep(0.6)
-            return await self.screen_mapper(*box) if self.screen_mapper else None
+            rect, _ = await self.focus_rect(slide_idx, box, label, settle=0.6)
+            return rect
 
     def read(self, slide_idx: int, key: str) -> str:
         return self._find_shape(Presentation(self.pptx).slides[slide_idx], key).text_frame.text
@@ -508,7 +527,6 @@ async def deck_flow(d: PitchDeck, h: Handoffs, opts: Opts, viewer_origin: tuple[
     pace = opts.pace
     d.spawn()
     await d.move_to(viewer_origin[0] + 60, viewer_origin[1] + 50, 650, "on it")
-    await d.load()
     d.status("Filling slide 3", 0.05)
     title, bullets, src = await content.solution_slide()
     out["deck_copy"] = src
@@ -689,7 +707,8 @@ async def screen_area(browser: Browser) -> tuple[int, int, int, int]:
 
 async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool = False,
               answer_timeout: float | None = None, keep_open: float = 4.0, **_: Any) -> dict:
-    opts = Opts(pace=1.0, type_delay=12, redirect_wait=5.0, target_s=120.0) if fast else Opts()
+    opts = (Opts(pace=1.0, dwell=1.2, glide_ms=400, type_delay=18, redirect_wait=5.0, target_s=110.0)
+            if fast else Opts())
     opts.auto_human = auto_human
     if answer_timeout is not None:
         opts.answer_timeout = answer_timeout
@@ -707,21 +726,40 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
             cw, ch = sw // 2, (sh - 30) // 2
             cell = lambda col, row: Rect(left + col * cw, top + 30 + row * ch, cw, ch)  # noqa: E731
 
-            fixer, web, social = (TrackedBrowserAgent(bus, a) for a in ("fixer", "web", "social"))
+            fixer, web, social = (TrackedBrowserAgent(bus, a, opts.dwell, opts.glide_ms)
+                                  for a in ("fixer", "web", "social"))
             await fixer.open(browser, cell(0, 0), f"{WORLD_URL}/hive/editor.html")
             await web.open(browser, cell(1, 0), f"{WORLD_URL}/site/index.html")
             await social.open(browser, cell(1, 1), f"{WORLD_URL}/hive/composer.html")
-            vctx, vpage = await open_window(browser, cell(0, 1), VIEWER_URL)
             deck = PitchDeck(bus, ws / "deck" / "pitch.pptx", render_dir)
-            deck.step_pause = 0.35 * opts.pace
-
-            async def mapper(fx: float, fy: float, fw: float, fh: float):
-                x, y, w, hh = await page_screen_rect(vpage, vpage.locator("#stage"))
-                return x + fx * w, y + fy * hh, fw * w, fh * hh
-
-            deck.screen_mapper = mapper
+            deck.step_pause = 0.8 * opts.dwell
             checker = Agent(bus, "checker")
-            await asyncio.sleep(0.8)  # viewer connects to the bus
+
+            # Deck Viewer: the Mac app's native one shows itself on deck_loaded and reports deck_viewer.
+            # If none reports within ~2s, open the stopgap Chrome viewer in the bottom-left cell.
+            await deck.load()
+            vctx = None
+            for _ in range(20):
+                if bus.deck_viewer:
+                    break
+                await asyncio.sleep(0.1)
+            if bus.deck_viewer:
+                v = bus.deck_viewer
+                viewer_origin = (v["x"], v["y"])
+                out["deck_viewer"] = "native"
+            else:
+                vctx, vpage = await open_window(browser, cell(0, 1), VIEWER_URL)
+
+                async def mapper(fx: float, fy: float, fw: float, fh: float):
+                    x, y, w, hh = await page_screen_rect(vpage, vpage.locator("#stage"))
+                    return x + fx * w, y + fy * hh, fw * w, fh * hh
+
+                deck.screen_mapper = mapper
+                await asyncio.sleep(0.8)  # the viewer connects to the bus, then gets the deck again
+                deck.emit("deck_loaded", slides=len(Presentation(deck.pptx).slides), base=deck.base_url,
+                          version=deck.version)
+                viewer_origin = (await page_screen_rect(vpage, vpage.locator("#stage")))[:2]
+                out["deck_viewer"] = "chrome"
 
             # Conductor: plan → one chat line per agent
             bus.emit(None, "chat", {"text": "🐝 Conductor: pitch in 5 minutes. Splitting the work…"})
@@ -732,12 +770,11 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
                 tasks = plan["agents"].get(a.id) or conductor.canned("pitch_in_5")["agents"][a.id]
                 a.chat("My plan: " + "; ".join(tasks))
 
-            vx, vy, _, _ = await page_screen_rect(vpage, vpage.locator("#stage"))
             await asyncio.gather(fixer.enter(0.0), web.enter(0.25), social.enter(0.5))
             results = await asyncio.gather(
                 fixer_flow(fixer, ws, h, opts, out),
                 web_flow(web, ws, h, opts),
-                deck_flow(deck, h, opts, (vx, vy), out),
+                deck_flow(deck, h, opts, viewer_origin, out),
                 social_flow(social, ws, h, opts, out),
                 checker_flow(checker, web, deck, h, opts, out),
                 return_exceptions=True,
@@ -768,7 +805,8 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
             await asyncio.sleep(keep_open)
             for a in (fixer, web, social):
                 await a.close()
-            await vctx.close()
+            if vctx:
+                await vctx.close()
             await browser.close()
     finally:
         stop.set()

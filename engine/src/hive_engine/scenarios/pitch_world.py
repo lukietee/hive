@@ -2,8 +2,8 @@
 
 The repo's demo-world/ is never modified. Every run copies it to a temp dir; agents edit the copy.
 
-  http://127.0.0.1:8767/site/...      → <copy>/site/            (🔵 Web's landing page)
-  http://127.0.0.1:8767/hive/...      → scenarios/pitch_pages/  (🔴 Fixer's editor, 🟣 Social's composer)
+  http://127.0.0.1:8768/site/...      → <copy>/site/            (🔵 Web's landing page)
+  http://127.0.0.1:8768/hive/...      → scenarios/pitch_pages/  (🔴 Fixer's editor, 🟣 Social's composer)
   GET  /api/file?path=product/src/signup.js → file text (inside the copy only)
   POST /api/test                       → runs `node --test` in <copy>/product, returns output + counts
 """
@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urlparse
 
 DEMO_WORLD = Path(__file__).resolve().parents[4] / "demo-world"
 PAGES = Path(__file__).resolve().parent / "pitch_pages"
-WORLD_PORT = 8767
+WORLD_PORT = 8768
 WORLD_URL = f"http://127.0.0.1:{WORLD_PORT}"
 
 

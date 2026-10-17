@@ -14,23 +14,40 @@ Chrome: the engine launches your installed **Google Chrome** with a fresh tempor
 ```bash
 uv run python -m hive_engine --scenario demo_sim      # 3 agents, 3 real Chrome windows, synced cursor events
 uv run python -m hive_engine --scenario deck_sim      # Deck agent fills a sample deck; viewer opens in Chrome
-uv run python -m hive_engine --scenario demo_sim --wait   # wait for {"cmd":"start"} from a client (the Mac app does NOT send one yet — omit --wait; use --delay N to give the app time to connect)
+uv run python -m hive_engine --scenario pitch_in_5    # THE live demo (~2:10): 5 agents finish the Whisk startup
+uv run python -m hive_engine --scenario pitch_in_5 --fast --auto-human   # ~1 min rehearsal, answers itself
+uv run python -m hive_engine --wait                   # no auto-run: serve {"cmd":"start"} (notch Start button) until Ctrl-C
+uv run python -m hive_engine --scenario pitch_in_5 --stay   # auto-run once, then keep serving start commands
 uv run python tools/ws_tail.py                         # in another terminal: print every bus event
 ```
 - Bus: `ws://127.0.0.1:8765`
 - Static server: `http://127.0.0.1:8766` (`/viewer/index.html`, `/test/form.html`, `/render/slide-N.png`)
+- `{"cmd":"start"}` always works (the notch's Start button). A second start while a scenario runs is rejected with a chat line. Start args may also carry `fast`, `auto_human`, `answer_timeout`.
+
+### pitch_in_5 (the live demo)
+Runs on a **fresh temp copy** of `demo-world/` every time (the repo copy is never modified; the path is printed at the end). A small server for the copy runs at `http://127.0.0.1:8768` (`/site/`, `/hive/editor.html`, `/hive/composer.html`, `POST /api/test` runs the real `node --test`).
+
+| Window | Agent | What happens |
+|---|---|---|
+| ① top-left | 🔴 Fixer | Editor page: runs the tests (1 failing), patches the null-referrer bug, finishes student plan / welcome email / session token, re-enables the todo tests → **5/5**. Screenshot → slide 5 |
+| ② top-right | 🔵 Web | Landing page: hero, knocked-off button, logo, pricing (from the old **$39** note), wired waitlist (types an email, joins). Screenshots → slides 5 and 7 |
+| ③ bottom-left | 🟡 Deck | The Mac app's native Deck Viewer if it reports `deck_viewer` within ~2s of `deck_loaded`, else the Chrome stopgap viewer. Fills slides 3/5/6/7/10, logo on 1/3, market chart on 6; asks **"$4B or $2B?"** |
+| ④ bottom-right | 🟣 Social | Composer: rewrites the rambling draft with the live URL and price (311 chars, over the limit on purpose); takes `@Social make it shorter` or trims itself; saves the draft (never posts) |
+| overlay | ⚪ Checker | Site **$39** vs deck **$29**: circles both, `link`, asks which is right (8s → $29), the loser fixes it, then re-checks site/deck/post |
+
+Human moments time out to a default (`--answer-timeout`, 8s), so the run never hangs. Answer from the notch, or send `{"cmd":"answer","args":{"choice":"$29/mo"}}` (agent optional) and `{"cmd":"say","args":{"text":"@Social make it shorter"}}`. With `ANTHROPIC_API_KEY`, the Conductor's plan, slide 3 copy and the post come from Claude (`claude-opus-5-5`, 12–15s timeout, canned fallback).
 
 ## Layout
 | File | What |
 |---|---|
-| `bus.py` | WebSocket server; broadcasts events; routes commands (start/pause/resume/say/answer) to agent inboxes; replays spawns to late joiners |
+| `bus.py` | WebSocket server; broadcasts events; routes commands: start (one run at a time), pause/resume, say (`@Agent …` mentions), answer (to whoever is waiting if no agent), deck_viewer/deck_box (native Deck Viewer geometry); replays spawns + latest countdown/budget to late joiners |
 | `agent.py` | `Agent` base: spawn/status/chat/move_to/click_at/typing/highlight/link/ask_human/done, plus pause gating. **Sync rule:** `moving_to` → wait → `click`/`typing` → then the real action |
 | `browser_agent.py` | `BrowserAgent`: one Chrome window per agent, positioned via CDP `Browser.setWindowBounds`. `screen_point_for(locator)` = window position + browser-UI offset + element box. `click`, `type`, `point_at`, and `click_xy` (screen point → CDP `Input.dispatchMouseEvent`, for clicks a model picks from a screenshot) |
 | `deck_agent.py` / `render.py` | python-pptx step edits (`set_text`, `insert_image`) → LibreOffice headless → PDF → PyMuPDF PNGs; emits `deck_*` events and, given a screen mapper, contract cursor/highlight events on the edited shape |
 | `viewer/index.html` | Stopgap Deck Viewer (thumbnail strip, crossfade, zoom, selection handles), driven by the bus |
 | `conductor.py` | Request → per-agent tasks via Claude (`claude-opus-5-5`, `ANTHROPIC_API_KEY`); falls back to a canned plan with no key |
 | `telegram_bot.py` | Telegram ⇄ bus relay skeleton (`@Web …` → `say`, `@everyone pause`, inline buttons → `answer`). Needs `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. **Not run yet.** |
-| `scenarios/` | `demo_sim`, `deck_sim` (working); `pitch_in_5` (outlined stub) |
+| `scenarios/` | `demo_sim`, `deck_sim`, `pitch_in_5` (+ `pitch_world.py` workspace/server, `pitch_content.py` Claude copy, `pitch_pages/` editor + composer pages) |
 | `testpages/form.html` | Local page the demo_sim agents work on; records real click coordinates for verification |
 | `tools/ws_tail.py` | Debug client that prints or records events |
 | `live/` | 👁 live view. `stream.py`: per-agent Chrome screencast (starts automatically in `BrowserAgent.open`, `HIVE_LIVE=0` to disable). `relay.py`: `ws://127.0.0.1:8767`, follows the bus, maps cursors to page fractions, latest-wins frames. `web/index.html`: phone page at **http://127.0.0.1:8766/live/** (tile grid, cursors, tap to focus + chat log; Telegram WebApp-aware) |
@@ -41,6 +58,8 @@ uv run python tools/ws_tail.py                         # in another terminal: pr
 - **3 agents in parallel:** each agent drove its own window, 6 real clicks per agent. 69 events reached a client: spawn 3, moving_to 21, click 12, typing 6, highlight 3, status 12, chat 3, done 3, summary 1.
 - **Deck rendering:** first LibreOffice render ~3.5s (cold start), then **~0.55–0.6s per re-render** for a 4-slide deck (PDF ~0.53s + PNG ~0.03s). The viewer crossfades and draws selection handles on the edited shape.
 
+- **pitch_in_5 (Oct 17):** 6 runs end to end, 0 agent errors. Tests 2 pass/1 fail/2 todo → **5/5**. $39 vs $29 caught and fixed on the site; post ≤280 chars with the price. 16 deck boxes filled, ~0.6–0.9s per render. **18 real clicks per run, each within ≤1.2 pt of the ghost cursor** (Chrome reports integer click coords; element centers are fractional). Native Deck Viewer path (simulated `deck_viewer`/`deck_box` client): 16 Deck cursor moves landed on the `deck_box` centers (≤0.08 pt), no duplicate selection highlights. Timing: ~2:00 normal with instant answers (~2:10 with timeouts), ~1 min `--fast --auto-human`.
+
 - **Live view (👁):** demo_sim with 3 windows (500×359 viewports), 22s: ~4.5 fps per agent (Chrome only sends frames on repaint; capped at 8), ~27 KB per JPEG, **capture → client latency ~5 ms median, ~11 ms p95** on localhost. Cursor fractions land on the right buttons in the page's frames (headless screenshot checked).
 
 ### Live view on a phone
@@ -48,9 +67,8 @@ uv run python tools/ws_tail.py                         # in another terminal: pr
 - **Telegram Mini App:** Telegram requires HTTPS. Put both ports behind one tunnel (e.g. `cloudflared`/`ngrok`) and open `https://<tunnel>/live/?ws=wss://<tunnel-for-8767>`. The `?ws=` parameter overrides the relay URL.
 
 ## Not done / TODO
-- **Contract additions needed** (in `docs/CONTRACT.md`): `deck_loaded`, `deck_focus`, `deck_slide_updated`. The Mac app should ignore unknown event types.
 - **browser-use is not added.** It pins `websockets==15`, which conflicts with 17. Add it later in a separate process, or pin websockets ≤15.
 - **`unoserver` is not set up.** Plain `soffice` is already ~0.55s warm, which is probably fast enough.
 - Telegram relay untested against the real API. One bot only; one bot per agent / Photon later.
-- Conductor not wired into the scenarios. The `pitch_in_5` scenario is an outline only.
+- pitch_in_5 gaps: no Design/iPad agent (Web uses the finished kit's logo), no real deploy (the "live URL" is the local server), slide 10's QR slot stays empty, Telegram not wired.
 - Agent screen positions assume the main display. Multi-display setups are untested.
