@@ -14,6 +14,8 @@ Chrome: the engine launches your installed **Google Chrome** with a fresh tempor
 ```bash
 uv run python -m hive_engine --scenario demo_sim      # 3 agents, 3 real Chrome windows, synced cursor events
 uv run python -m hive_engine --scenario deck_sim      # Deck agent fills a sample deck; viewer opens in Chrome
+uv run python -m hive_engine --scenario call_sim      # simulated bakery call + follow-up → Mac Call window (--tts to hear it)
+uv run python tools/test_call.py --dry-run            # check the live-call config (docs/CALLS_SETUP.md)
 uv run python -m hive_engine --scenario pitch_in_5    # THE live demo (~2:10): 5 agents finish the Whisk startup
 uv run python -m hive_engine --scenario pitch_in_5 --fast --auto-human   # ~1 min rehearsal, answers itself
 uv run python -m hive_engine --wait                   # no auto-run: serve {"cmd":"start"} (notch Start button) until Ctrl-C
@@ -47,7 +49,8 @@ Human moments time out to a default (`--answer-timeout`, 8s), so the run never h
 | `viewer/index.html` | Stopgap Deck Viewer (thumbnail strip, crossfade, zoom, selection handles), driven by the bus |
 | `conductor.py` | Request → per-agent tasks via Claude (`claude-opus-5-5`, `ANTHROPIC_API_KEY`); falls back to a canned plan with no key |
 | `telegram_bot.py` | Telegram ⇄ bus relay skeleton (`@Web …` → `say`, `@everyone pause`, inline buttons → `answer`). Needs `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. **Not run yet.** |
-| `scenarios/` | `demo_sim`, `deck_sim`, `pitch_in_5` (+ `pitch_world.py` workspace/server, `pitch_content.py` Claude copy, `pitch_pages/` editor + composer pages) |
+| `calls/` | Phone calls: `place_call()` (ElevenLabs agent over Photon SIP, or a scripted fake), `CallMemory` (`engine/state/calls/<agent>.json`) |
+| `scenarios/` | `call_sim`, `demo_sim`, `deck_sim`, `pitch_in_5` (+ `pitch_world.py` workspace/server, `pitch_content.py` Claude copy, `pitch_pages/` editor + composer pages) |
 | `testpages/form.html` | Local page the demo_sim agents work on; records real click coordinates for verification |
 | `tools/ws_tail.py` | Debug client that prints or records events |
 | `live/` | 👁 live view. `stream.py`: per-agent Chrome screencast (starts automatically in `BrowserAgent.open`, `HIVE_LIVE=0` to disable). `relay.py`: `ws://127.0.0.1:8767`, follows the bus, maps cursors to page fractions, latest-wins frames. `web/index.html`: phone page at **http://127.0.0.1:8766/live/** (tile grid, cursors, tap to focus + chat log; Telegram WebApp-aware) |

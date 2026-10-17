@@ -27,6 +27,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `guests` | Guests | `#FF375F` | 💌 |
 | `cake` | Cake | `#FFD60A` | 🎂 |
 | `food` | Food | `#FF6B35` | 🍕 |
+| `caller` | Caller | `#64D2FF` | 📞 |
 
 ## Event envelope (engine → clients)
 ```json
@@ -51,6 +52,10 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `deck_loaded` | `{ "slides", "base", "version" }` | Deck Viewer loads the slide PNGs from `base` (e.g. `http://127.0.0.1:8766/...`) |
 | `deck_focus` | `{ "slide", "box": [x, y, w, h], "label" }` | Deck Viewer scrolls to and zooms the slide; box is in **fractions of the slide** (0–1), for the cursor + selection handles |
 | `deck_slide_updated` | `{ "slide", "version", "render_ms" }` | Deck Viewer crossfades to the re-rendered slide PNG |
+| `call_started` | `{ "call_id", "to", "label", "mode": "live"\|"fake" }` | Call window appears (caller ID = label + formatted number) |
+| `call_state` | `{ "call_id", "state": "ringing"\|"connected"\|"ended" }` | Status line: Ringing… → live timer → Call ended |
+| `call_transcript` | `{ "call_id", "speaker": "agent"\|"them", "text", "final" }` | Caption bubble; a non-final line is replaced by the next update from the same speaker |
+| `call_ended` | `{ "call_id", "duration_s", "outcome": "success"\|"failure"\|"unknown", "summary", "details": {…} }` | Summary card + fact chips; window fades out ~9s later |
 
 ## Commands (clients → engine)
 ```json
@@ -90,3 +95,27 @@ The relay is a bus client: it follows `ws://127.0.0.1:8765`, and each `BrowserAg
 | viewer → relay | `{"t":"ping"}` → `{"t":"pong","ts"}` | commands still go to the bus (8765), not here |
 
 Frames are "latest wins" per viewer, so a slow phone drops frames instead of lagging behind.
+
+
+## Calls (phone, via ElevenLabs ⇄ Photon SIP)
+Any agent can place a call: `await hive_engine.calls.place_call(agent, to="+1…", label="Bakery", goal="…", context={…}, follow_up=False)`.
+It emits the four `call_*` events above (with `agent` = the calling agent) and returns a `CallResult`.
+
+- **Live mode** (keys present): sets the hosted ElevenLabs agent's prompt + first message for this call
+  (`PATCH /v1/convai/agents/{id}`), dials with `POST /v1/convai/sip-trunk/outbound-call` through the Photon
+  number imported as a SIP trunk, and polls `GET /v1/convai/conversations/{id}` about once a second for
+  status, transcript turns and the post-call analysis. Setup: [`docs/CALLS_SETUP.md`](CALLS_SETUP.md).
+- **Fake mode** (`fake=True`, or no keys): a scripted call through the same events (`call_sim` scenario).
+- **Disclosure:** every prompt and first message says it's an AI and that the call is recorded.
+
+**Call memory (for the iMessage layer):** each finished call is appended to
+`engine/state/calls/<agent>.json` (`$HIVE_STATE_DIR` overrides `engine/state`; gitignored):
+```json
+{"agent": "cake", "calls": [{"call_id", "mode", "to", "label", "goal", "context", "follow_up",
+  "started_at", "ended_at", "duration_s", "outcome", "summary", "details": {…},
+  "transcript": [{"speaker": "agent"|"them", "text", "t"}], "conversation_id"}]}
+```
+Read it with `from hive_engine.calls import CallMemory`: `CallMemory().latest("cake")`, `.history("cake")`,
+or `.context_text("cake")` (a short recap to paste into an LLM prompt when the user texts "@Cake did they
+say 6?"). A change request becomes a follow-up call with `follow_up=True`, which feeds the last call's
+summary into the voice prompt.
