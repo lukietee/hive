@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Human → engine commands triggered from the notch and the 🐝 menu (docs/CONTRACT.md, "Commands").
+/// Human → engine commands triggered from the notch and the menu bar menu (docs/CONTRACT.md, "Commands").
 extension HiveStore {
     func send(_ cmd: String, _ args: [String: Any] = [:]) {
         onCommand?(cmd, args)

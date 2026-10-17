@@ -114,7 +114,7 @@ final class HiveStore: ObservableObject {
             name: (d["name"] as? String) ?? style.name,
             color: rgb.color,
             onColor: rgb.onColor,
-            emoji: (d["emoji"] as? String) ?? style.emoji,
+            symbol: (d["symbol"] as? String) ?? style.symbol,
             position: ScreenGeometry.notchAnchor,
             scale: 0.3,
             opacity: 0
@@ -148,7 +148,7 @@ final class HiveStore: ObservableObject {
     private func status(_ id: String, _ d: [String: Any]) {
         guard ensureAgent(id) else { return }
         withAnimation(.easeOut(duration: 0.3)) {
-            if let t = d["text"] as? String { agents[id]?.status = t }
+            if let t = d["text"] as? String { agents[id]?.status = CleanText.strip(t) }
             if let p = num(d["progress"]) { agents[id]?.progress = min(max(p, 0), 1) }
         }
     }
@@ -232,7 +232,8 @@ final class HiveStore: ObservableObject {
         let options = (d["options"] as? [Any])?.map { "\($0)" } ?? []
         withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
             agents[id]?.needsHuman = true
-            question = HumanQuestion(agent: id, question: (d["question"] as? String) ?? "Need your input", options: options)
+            question = HumanQuestion(agent: id, question: CleanText.strip((d["question"] as? String) ?? "Need your input"),
+                                     options: options.map(CleanText.strip))
         }
     }
 
@@ -240,7 +241,7 @@ final class HiveStore: ObservableObject {
         guard let text = d["text"] as? String else { return }
         chatToken += 1
         let token = chatToken
-        withAnimation(.easeOut(duration: 0.2)) { lastChat = ChatLine(agent: id, text: text) }
+        withAnimation(.easeOut(duration: 0.2)) { lastChat = ChatLine(agent: id, text: CleanText.strip(text)) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) { [weak self] in
             guard let self, self.chatToken == token else { return }
             withAnimation(.easeOut(duration: 0.3)) { self.lastChat = nil }
@@ -249,7 +250,7 @@ final class HiveStore: ObservableObject {
 
     private func done(_ id: String, _ d: [String: Any]) {
         guard agents[id] != nil else { return }
-        if let s = d["summary"] as? String { agents[id]?.status = s }
+        if let s = d["summary"] as? String { agents[id]?.status = CleanText.strip(s) }
         agents[id]?.leaving = true
         agents[id]?.typingText = nil
         agents[id]?.caption = nil
@@ -268,9 +269,9 @@ final class HiveStore: ObservableObject {
     }
 
     private func swarmSummary(_ d: [String: Any]) {
-        let lines = (d["lines"] as? [Any])?.map { "\($0)" } ?? []
+        let lines = (d["lines"] as? [Any])?.map { CleanText.strip("\($0)") } ?? []
         withAnimation(.spring(response: 0.5, dampingFraction: 0.78)) {
-            summary = SummaryCard(title: (d["title"] as? String) ?? "Done", lines: lines)
+            summary = SummaryCard(title: CleanText.strip((d["title"] as? String) ?? "Done"), lines: lines)
             question = nil
         }
     }

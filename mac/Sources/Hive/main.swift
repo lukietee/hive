@@ -31,6 +31,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
 
         let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
+            NotchSnapshots.render(to: URL(fileURLWithPath: args[i + 1]))
+            NSApp.terminate(nil)
+            return
+        }
         if args.contains("--sim") {
             simMode = true
             simulator.run()
@@ -117,7 +122,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "🐝"
+        let icon = NSImage(systemSymbolName: "hexagon.fill", accessibilityDescription: "Hive")
+        icon?.isTemplate = true
+        item.button?.image = icon
         let menu = NSMenu()
         menu.delegate = self
         menu.addItem(makeItem("Start Pitch in 5", #selector(startPitch), key: "p"))

@@ -115,7 +115,7 @@ struct CursorView: View {
                 .offset(x: 15, y: 24)
 
             if let text = agent.typingText {
-                Text("⌨︎ \(text)")
+                (Text(Image(systemName: "keyboard")) + Text(" \(text)"))
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .lineLimit(1)
                     .padding(.horizontal, 7)
@@ -136,10 +136,10 @@ struct CursorView: View {
     private var nameTag: some View {
         HStack(spacing: 4) {
             Text(agent.name)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .font(.system(size: 11, weight: .bold, design: .default))
             if let caption = agent.caption, !caption.isEmpty {
                 Text("· \(caption)")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(.system(size: 11, weight: .medium, design: .default))
                     .lineLimit(1)
             }
         }
@@ -260,7 +260,7 @@ struct LinkView: View {
 
             if let text = line.text {
                 Text(text)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: 12, weight: .semibold, design: .default))
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
                     .background(Capsule().fill(Color.black.opacity(0.85)))
