@@ -16,6 +16,14 @@ final class HiveStore: ObservableObject {
     @Published var question: HumanQuestion? = nil
     @Published var lastChat: ChatLine? = nil
     @Published var connected = false
+    /// Agents the human paused from the notch (pause/resume commands).
+    @Published var paused: Set<String> = []
+    @Published var allPaused = false
+    /// Pointer is over the notch panel (Dynamic Island-style peek).
+    @Published var hovering = false
+    /// Where notch/menu commands go: the engine socket, or the simulator log.
+    var onCommand: ((String, [String: Any]) -> Void)?
+    let deck = DeckViewerModel()
 
     private var typingTokens: [String: Int] = [:]
     private var chatToken = 0
@@ -23,7 +31,7 @@ final class HiveStore: ObservableObject {
     var notchMode: NotchMode {
         if summary != nil { return .summary }
         if !order.isEmpty || countdown != nil || budget != nil || question != nil { return .expanded }
-        return .idle
+        return hovering ? .peek : .idle
     }
 
     var visibleAgents: [AgentState] {
@@ -42,7 +50,10 @@ final class HiveStore: ObservableObject {
             summary = nil
             question = nil
             lastChat = nil
+            paused = []
+            allPaused = false
         }
+        deck.reset()
     }
 
     // MARK: - Event handling
@@ -84,6 +95,7 @@ final class HiveStore: ObservableObject {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 budget = Budget(spent: num(d["spent"]) ?? 0, total: num(d["total"]) ?? 0, caps: caps)
             }
+        case "deck_loaded", "deck_focus", "deck_slide_updated": deck.handle(type, d)
         default:
             break
         }

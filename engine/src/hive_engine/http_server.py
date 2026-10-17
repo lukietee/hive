@@ -3,6 +3,7 @@
   /viewer/...    → engine/viewer/
   /test/...      → engine/testpages/
   /render/...    → the deck render directory (slide-N.png)
+  /live/...      → the 👁 live agent view (live/web/)
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ def start_http(render_dir: Path, port: int = HTTP_PORT) -> ThreadingHTTPServer:
         "/viewer": ENGINE_DIR / "viewer",
         "/test": ENGINE_DIR / "testpages",
         "/render": render_dir,
+        "/live": Path(__file__).resolve().parent / "live" / "web",
     }
     server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()

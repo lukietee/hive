@@ -62,6 +62,31 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
 | `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
 | `answer` | `{ "agent": id, "choice" }`: the reply to `needs_human` |
+| `deck_viewer` | `{ "x", "y", "w", "h" }`: the native Deck Viewer's big-slide rect at 1× zoom, in screen points. Sent when the viewer appears, moves or resizes, and on (re)connect |
+| `deck_box` | `{ "slide", "label", "x", "y", "w", "h" }`: reply to each `deck_focus`, the focused box's **final on-screen rect after the viewer's zoom**, in screen points. Arrives within ~50 ms of `deck_focus` |
+
+### Deck cursor flow
+The Deck Viewer zooms toward small boxes, so the engine can't compute the screen point from the slide fractions alone. The flow:
+1. The engine emits `deck_focus`.
+2. The engine waits for the matching `deck_box` (same `slide`; time out after ~0.5 s and fall back to mapping the box fractions onto the last `deck_viewer` rect).
+3. The engine runs the usual sync rule on the box center: `moving_to`, wait, then `typing`/`click`.
+
+In `--sim` (no engine), the viewer drives the Deck cursor itself with the same events. When `deck_box` is available, the engine should skip its own `highlight` of style `select` for deck edits, since the viewer already draws the selection handles.
 
 ## Sync rule
 Before a real action, an agent emits `moving_to`, waits `duration_ms`, emits `click` (or `typing`), **then** performs the action. The cursor always arrives before the app reacts.
+
+## Live view relay (👁, phone / Telegram Mini App)
+A separate socket so video never slows the main bus. Page: **`http://127.0.0.1:8766/live/`**. Relay: **`ws://127.0.0.1:8767`** (`HIVE_LIVE_HOST` / `HIVE_LIVE_PORT` to change; `HIVE_LIVE=0` turns streaming off).
+The relay is a bus client: it follows `ws://127.0.0.1:8765`, and each `BrowserAgent` streams its page to it with Chrome's `Page.startScreencast`, so it needs no macOS Screen Recording permission.
+
+| direction | message | data |
+|---|---|---|
+| relay → viewer (text) | `{"t":"hello","agents":{id:{name,color,emoji,status,progress,done,streaming,cursor}}}` | once on connect (late joiners also get each agent's last frame) |
+| relay → viewer (text) | `{"t":"bus","e":<event>}` | bus events `agent_spawn`, `agent_status`, `chat`, `agent_done`, `needs_human`, `swarm_summary`, `countdown`, `budget` |
+| relay → viewer (text) | `{"t":"cursor","agent","fx","fy","kind":"move"\|"click"\|"typing","duration_ms"?,"label"?,"text"?}` | `moving_to` / `click` / `typing` mapped to **fractions (0–1) of that agent's page viewport** |
+| relay → viewer (text) | `{"t":"stream","agent","on"}` | screencast started / stopped |
+| relay → viewer (binary) | `[u16 BE header length][header JSON][JPEG]` | header `{"agent","seq","ts","cap"?,"w","h"}`: `ts` relayed / `cap` captured (epoch ms), `w`×`h` viewport in CSS px |
+| viewer → relay | `{"t":"ping"}` → `{"t":"pong","ts"}` | commands still go to the bus (8765), not here |
+
+Frames are "latest wins" per viewer, so a slow phone drops frames instead of lagging behind.

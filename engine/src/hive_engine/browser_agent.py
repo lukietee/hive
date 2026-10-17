@@ -81,6 +81,7 @@ class BrowserAgent(Agent):
         self.page: Page | None = None
         self.cdp: CDPSession | None = None
         self.window_id: int | None = None
+        self.live = None  # 👁 live-view screencast (live/stream.py), started in open()
 
     # ---- window ------------------------------------------------------------
     async def open(self, browser: Browser, rect: Rect | None = None, url: str | None = None) -> Page:
@@ -94,6 +95,8 @@ class BrowserAgent(Agent):
             await self.set_window(rect)
         if url:
             await self.page.goto(url)
+        from .live import attach  # lazy: the live view is optional (HIVE_LIVE=0 disables it)
+        self.live = await attach(self.id, self.page, self.cdp)
         return self.page
 
     async def set_window(self, rect: Rect) -> None:
@@ -106,6 +109,9 @@ class BrowserAgent(Agent):
         })
 
     async def close(self) -> None:
+        if self.live:
+            await self.live.stop()
+            self.live = None
         if self.context:
             await self.context.close()
 
