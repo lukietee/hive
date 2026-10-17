@@ -75,6 +75,8 @@ def format_event(e: dict) -> tuple[str, InlineKeyboardMarkup | None] | None:
 
 
 async def main() -> None:
+    from .env import load_env
+    load_env()
     token, chat_id = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
         print(SETUP)

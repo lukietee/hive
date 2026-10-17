@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 
 from .bus import Bus
+from .env import load_env
 from .http_server import start_http
 
 SCENARIOS = ("demo_sim", "deck_sim", "pitch_in_5")
@@ -67,6 +68,7 @@ def main() -> None:
     p.add_argument("--render-dir", default=str(Path(tempfile.gettempdir()) / "hive_render"))
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()
+    load_env()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(message)s")
     asyncio.run(amain(args))
