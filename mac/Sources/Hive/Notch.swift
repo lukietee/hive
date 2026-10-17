@@ -9,6 +9,9 @@ final class NotchPanelController {
 
     private(set) var panel: NSPanel
     private let store: HiveStore
+    private var notchSize: CGSize = .zero
+    private var trackTimer: Timer?
+    private var leaveWork: DispatchWorkItem?
 
     init(store: HiveStore) {
         self.store = store
@@ -19,13 +22,15 @@ final class NotchPanelController {
         panel.hasShadow = false
         panel.isMovable = false
         panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        // Display-only for now: never block clicks on the menu bar underneath.
+        // Click-through except over the visible notch shape (see track()).
         panel.ignoresMouseEvents = true
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         layout()
+        startTracking()
     }
 
     /// (Re)positions the panel at the top-center of the notch screen.
@@ -35,8 +40,8 @@ final class NotchPanelController {
         let frame = NSRect(x: screen.frame.midX - size.width / 2,
                            y: screen.frame.maxY - size.height,
                            width: size.width, height: size.height)
-        let notch = ScreenGeometry.notchSize(on: screen)
-        let host = NSHostingView(rootView: NotchView(store: store, notchSize: notch))
+        notchSize = ScreenGeometry.notchSize(on: screen)
+        let host = FirstMouseHostingView(rootView: NotchView(store: store, notchSize: notchSize))
         host.frame = NSRect(origin: .zero, size: size)
         panel.contentView = host
         panel.setFrame(frame, display: true)
@@ -44,6 +49,76 @@ final class NotchPanelController {
 
     func show() {
         panel.orderFrontRegardless()
+    }
+
+    // MARK: Hit-testing
+
+    /// The panel window is 600×340 but mostly transparent. Poll the pointer and only accept
+    /// mouse events while it is over the visible shape, so the menu bar and apps underneath
+    /// keep working. Hovering also drives the idle → peek expansion.
+    private func startTracking() {
+        trackTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.track() }
+        }
+    }
+
+    /// Visible notch shape in AppKit global coordinates.
+    private var visibleRect: NSRect {
+        let size = NotchLayout.size(store: store, notch: notchSize)
+        let f = panel.frame
+        return NSRect(x: f.midX - size.width / 2, y: f.maxY - size.height,
+                      width: size.width, height: size.height)
+    }
+
+    private func track() {
+        let inside = visibleRect.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation)
+        if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
+        if inside {
+            leaveWork?.cancel()
+            leaveWork = nil
+            if !store.hovering { store.hovering = true }
+        } else if store.hovering, leaveWork == nil {
+            // Small grace period so the island doesn't flicker shut when the pointer grazes the edge.
+            let work = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.store.hovering = false
+                    self?.leaveWork = nil
+                }
+            }
+            leaveWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+        }
+    }
+}
+
+/// Buttons should work on the first click even though the panel never becomes key.
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+// MARK: - Layout
+
+/// Size of the visible notch shape for the current state. Shared by the view (drawing)
+/// and the panel controller (hit-testing), so clicks land exactly on what's drawn.
+@MainActor
+enum NotchLayout {
+    static func size(store: HiveStore, notch: CGSize) -> CGSize {
+        let maxH = NotchPanelController.panelSize.height
+        switch store.notchMode {
+        case .idle:
+            return CGSize(width: notch.width + 36, height: notch.height)
+        case .peek:
+            return CGSize(width: max(notch.width + 200, 380), height: notch.height + 56)
+        case .expanded:
+            let rows = CGFloat((store.visibleAgents.count + 2) / 3)
+            var h = notch.height + 44 + rows * 46
+            if store.question != nil { h += 34 }
+            if store.lastChat != nil { h += 22 }
+            return CGSize(width: 520, height: min(h + 12, maxH))
+        case .summary:
+            let lines = CGFloat(min(store.summary?.lines.count ?? 0, 6))
+            return CGSize(width: 520, height: min(notch.height + 64 + lines * 20, maxH))
+        }
     }
 }
 
@@ -80,28 +155,7 @@ struct NotchView: View {
 
     private var mode: NotchMode { store.notchMode }
 
-    private var width: CGFloat {
-        switch mode {
-        case .idle: return notchSize.width + 36
-        case .expanded, .summary: return 520
-        }
-    }
-
-    private var height: CGFloat {
-        switch mode {
-        case .idle:
-            return notchSize.height
-        case .expanded:
-            let rows = CGFloat((store.visibleAgents.count + 2) / 3)
-            var h = notchSize.height + 44 + rows * 46
-            if store.question != nil { h += 34 }
-            if store.lastChat != nil { h += 22 }
-            return min(h + 12, NotchPanelController.panelSize.height)
-        case .summary:
-            let lines = CGFloat(min(store.summary?.lines.count ?? 0, 6))
-            return min(notchSize.height + 64 + lines * 20, NotchPanelController.panelSize.height)
-        }
-    }
+    private var size: CGSize { NotchLayout.size(store: store, notch: notchSize) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -120,7 +174,7 @@ struct NotchView: View {
                         .transition(.opacity)
                 }
             }
-            .frame(width: width, height: height)
+            .frame(width: size.width, height: size.height)
             .clipped()
             Spacer(minLength: 0)
         }
@@ -148,8 +202,41 @@ struct NotchView: View {
         switch mode {
         case .summary:
             summaryCard
+        case .peek:
+            peekContent
         default:
             expandedContent
+        }
+    }
+
+    // MARK: Peek (idle + hover)
+
+    private var peekContent: some View {
+        HStack(spacing: 10) {
+            Text("🐝 Hive")
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+            Circle()
+                .fill(store.connected ? Color.green : Color.gray)
+                .frame(width: 6, height: 6)
+            Text(store.connected ? "Engine ready" : "Engine offline")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundColor(.white.opacity(0.55))
+            Spacer(minLength: 6)
+            Button {
+                // ⌥-click starts the short test scenario instead of the real demo.
+                let alt = NSEvent.modifierFlags.contains(.option)
+                store.start(alt ? "demo_sim" : "pitch_in_5")
+            } label: {
+                Label("Pitch in 5", systemImage: "play.fill")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.white))
+                    .foregroundColor(.black)
+            }
+            .buttonStyle(PressableStyle())
+            .help("Start Pitch in 5 (⌥-click: demo_sim)")
         }
     }
 
@@ -161,8 +248,12 @@ struct NotchView: View {
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                 ForEach(store.visibleAgents) { agent in
-                    AgentPill(agent: agent)
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    Button { store.togglePause(agent.id) } label: {
+                        AgentPill(agent: agent, paused: store.isPaused(agent.id))
+                    }
+                    .buttonStyle(PressableStyle())
+                    .help(store.isPaused(agent.id) ? "Resume \(agent.name)" : "Pause \(agent.name)")
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
 
@@ -203,6 +294,18 @@ struct NotchView: View {
                     .foregroundColor(s <= 30 ? .red : .white)
                     .contentTransition(.numericText())
             }
+
+            if !store.visibleAgents.isEmpty {
+                Button { store.togglePauseAll() } label: {
+                    Image(systemName: store.anyPaused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.white.opacity(store.anyPaused ? 0.9 : 0.14)))
+                        .foregroundColor(store.anyPaused ? .black : .white)
+                }
+                .buttonStyle(PressableStyle())
+                .help(store.anyPaused ? "Resume all agents" : "Pause all agents")
+            }
         }
     }
 
@@ -216,12 +319,16 @@ struct NotchView: View {
                 .lineLimit(1)
             Spacer(minLength: 4)
             ForEach(q.options, id: \.self) { opt in
-                Text(opt)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3)
-                    .background(Capsule().stroke(color, lineWidth: 1.5))
-                    .foregroundColor(color)
+                Button { store.answer(opt) } label: {
+                    Text(opt)
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(color.opacity(0.001)))
+                        .background(Capsule().stroke(color, lineWidth: 1.5))
+                        .foregroundColor(color)
+                }
+                .buttonStyle(OptionButtonStyle(color: color))
             }
         }
         .padding(.horizontal, 10)
@@ -241,6 +348,16 @@ struct NotchView: View {
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
                     .lineLimit(1)
+                Spacer(minLength: 4)
+                Button { store.dismissSummary() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(Color.white.opacity(0.14)))
+                        .foregroundColor(.white.opacity(0.8))
+                }
+                .buttonStyle(PressableStyle())
+                .help("Dismiss")
             }
             ForEach(Array((store.summary?.lines ?? []).prefix(6).enumerated()), id: \.offset) { _, line in
                 Text("✓ \(line)")
@@ -257,6 +374,14 @@ struct NotchView: View {
 
 struct AgentPill: View {
     let agent: AgentState
+    var paused = false
+    @State private var hovered = false
+
+    private var statusText: String {
+        if paused { return "Paused · tap to resume" }
+        if agent.needsHuman { return "Waiting for you…" }
+        return agent.status.isEmpty ? "Starting…" : agent.status
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -266,8 +391,14 @@ struct AgentPill: View {
                     .trim(from: 0, to: agent.progress ?? 0)
                     .stroke(agent.color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                Circle().fill(agent.color).frame(width: 8, height: 8)
-                    .opacity(agent.needsHuman ? 0.4 : 1)
+                if paused || hovered {
+                    Image(systemName: paused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 8, weight: .heavy))
+                        .foregroundColor(agent.color)
+                } else {
+                    Circle().fill(agent.color).frame(width: 8, height: 8)
+                        .opacity(agent.needsHuman ? 0.4 : 1)
+                }
             }
             .frame(width: 22, height: 22)
 
@@ -275,9 +406,9 @@ struct AgentPill: View {
                 Text(agent.name)
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
-                Text(agent.needsHuman ? "Waiting for you…" : (agent.status.isEmpty ? "Starting…" : agent.status))
+                Text(statusText)
                     .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundColor(agent.needsHuman ? agent.color : .white.opacity(0.6))
+                    .foregroundColor(agent.needsHuman && !paused ? agent.color : .white.opacity(0.6))
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -285,7 +416,35 @@ struct AgentPill: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(height: 38)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(hovered ? 0.14 : 0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(agent.color.opacity(paused ? 0.6 : 0), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+        .opacity(paused ? 0.55 : 1)
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .onHover { hovered = $0 }
+    }
+}
+
+/// Slight shrink on press, Dynamic Island style.
+struct PressableStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+/// needs_human option: fills with the agent color on hover/press.
+struct OptionButtonStyle: ButtonStyle {
+    let color: Color
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Capsule().fill(color.opacity(configuration.isPressed ? 0.5 : (hovered ? 0.28 : 0))))
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+            .onHover { hovered = $0 }
     }
 }
 
