@@ -37,6 +37,24 @@ Runs on a **fresh temp copy** of `demo-world/` every time (the repo copy is neve
 
 Human moments time out to a default (`--answer-timeout`, 8s), so the run never hangs. Answer from the notch, or send `{"cmd":"answer","args":{"choice":"$29/mo"}}` (agent optional) and `{"cmd":"say","args":{"text":"@Social make it shorter"}}`. With `ANTHROPIC_API_KEY`, the Conductor's plan, slide 3 copy and the post come from Claude (`claude-opus-5-5`, 12–15s timeout, canned fallback).
 
+## Any goal: the dynamic orchestrator (`--goal`)
+```bash
+uv run python -m hive_engine --goal "Fix the failing test and add a pricing section to the site" --workspace ../demo-world
+uv run python -m hive_engine --goal "Find three matcha cafes near UCLA and list their hours"
+# from a client (e.g. a future notch goal box):
+#   {"v":1,"cmd":"start","args":{"scenario":"goal","goal":"...","workspace":"demo-world"}}
+```
+1. **Conductor** (`orchestrator/conductor.py`, `claude-opus-5-5`) looks at the goal + the workspace (file tree, READMEs) and returns a task graph: 1–6 agents, each with a worker type, name, Apple color, SF Symbol, goal and `depends_on`. Validated in `orchestrator/plan.py` (unique ids, valid symbols, acyclic deps); a one-agent offline plan if Claude is unavailable.
+2. **Runner** (`orchestrator/runner.py`) copies the workspace to a temp dir (the repo's demo-world is never touched), serves it at `http://127.0.0.1:8770` (`HIVE_WS_PORT`), lays the windows out in a grid and runs agents as their dependencies finish. Then **one re-plan pass**: the Conductor may add ≤2 follow-up agents for anything the goal asked for that's still missing. Ends with `swarm_summary`; the run report includes tokens and a cost estimate.
+3. **Workers** (`workers/`):
+   | type | how | visible as |
+   |---|---|---|
+   | `browser` | **Browser Use** 0.13 in its own uv project (`../workers/browser_use/`, it pins websockets 15) as a subprocess per agent, attached over CDP to a Chrome window the engine launched and placed (temp profile). Its click/type actions are hooked so the ghost cursor glides first (sync rule). Model `claude-haiku-5-5` (`HIVE_BROWSER_MODEL`): Sonnet/Opus 5.5 reject forced tool calls, which made browser-use's action format unreliable. Read-only on the real web; no uploads/raw JS. | its Chrome window + 👁 live view |
+   | `code` | Claude tool loop (`claude-sonnet-5-5`, `HIVE_WORKER_MODEL`): list/read/write/replace files, run commands (60s, secrets stripped from env, dangerous commands blocked) | an editor + terminal window; cursor on each changed line / command |
+   | `deck` | Claude tool loop over python-pptx (read workspace notes, `get_deck`, `set_text`, `add_slide`) reusing `DeckAgent`'s render + Deck Viewer focus | the Deck Viewer (native, or the Chrome stopgap) |
+   | `checker` | reviews teammates' results + files, flags contradictions, asks the human | a review window |
+4. **Questions**: workers' `needs_human` carry the agent's own 2–4 options and `allow_other: true`; answers can be a number, an option or free text, which goes back into the agent's Claude context. Unanswered questions take the first option after `--answer-timeout` (30s default for goals).
+
 ## Layout
 | File | What |
 |---|---|

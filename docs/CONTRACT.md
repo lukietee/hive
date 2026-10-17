@@ -35,14 +35,14 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 
 | type | data | Mac app behavior |
 |---|---|---|
-| `agent_spawn` | `{ "name", "color", "emoji", "x", "y" }` | Create the cursor at (x,y), or under the notch if omitted; add a pill to the notch |
+| `agent_spawn` | `{ "name", "color", "emoji"?, "symbol"?, "x", "y" }` — dynamic (goal) agents send an SF Symbol name in `symbol` and no emoji; their ids are not in the table above | Create the cursor at (x,y), or under the notch if omitted; add a pill to the notch |
 | `agent_status` | `{ "text", "progress": 0..1? }` | Update the pill text / progress ring |
 | `moving_to` | `{ "x", "y", "duration_ms": 300, "label"? }` | Glide the cursor to (x,y) with easing |
 | `click` | `{ "x", "y" }` | Click ripple at (x,y) |
 | `typing` | `{ "x", "y", "text" }` | Show a small typing indicator by the cursor |
 | `highlight` | `{ "x", "y", "w", "h", "style": "circle" \| "box" \| "select" }` | Draw a circle, box or selection handles (fade out after 2.5s unless `"sticky": true`) |
 | `link` | `{ "from": [x,y], "to": [x,y], "text"? }` | Draw a line between two points (Checker conflicts) |
-| `needs_human` | `{ "question", "options": [..] }` | Pulse the cursor; show the question in the notch |
+| `needs_human` | `{ "question", "options": [..], "allow_other"? }` — `allow_other: true` means a free-text answer is welcome too (show "Other…"); `answer.choice` may then be any string, or an option number like `"1"` | Pulse the cursor; show the question in the notch |
 | `chat` | `{ "text" }` | (For the chat relay; the app may show it in the notch) |
 | `agent_done` | `{ "summary"? }` | Cursor flies back into the notch and disappears |
 | `swarm_summary` | `{ "title", "lines": [..] }` | Show the summary card in the notch |
@@ -58,7 +58,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 ```
 | cmd | args |
 |---|---|
-| `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim", "fast"?, "auto_human"?, "answer_timeout"? }`. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
+| `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim" \| "goal", "fast"?, "auto_human"?, "answer_timeout"? }`; for `"goal"` also `"goal": str` (required), `"workspace"?: path` (agents edit a temp copy), `"urls"?: [str]`. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
 | `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
 | `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
 | `answer` | `{ "agent": id, "choice" }`: the reply to `needs_human` |

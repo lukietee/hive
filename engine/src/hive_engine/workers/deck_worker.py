@@ -67,6 +67,10 @@ def _add_slide(prs, title: str, body: str) -> int:
 
 
 TOOLS: list[dict[str, Any]] = [
+    {"name": "list_files", "description": "List the workspace's files (research notes, plans, data).",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "read_file", "description": "Read a text file from the workspace (path relative to it).",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
     {"name": "get_deck", "description": "List every slide with its shapes (name and current text).",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "set_text", "description": "Replace the text of one shape (by name, from get_deck). Use \\n for new lines.",
@@ -86,12 +90,14 @@ TOOLS: list[dict[str, Any]] = [
 
 SYSTEM = """You are {name}, the deck agent on the Hive team. You edit a real PowerPoint deck in small steps; each step
 is rendered live for an audience. Fill empty or TODO shapes with crisp, specific copy (short lines, no fluff);
-add slides only when needed. Read the deck first with get_deck. Then call finish."""
+add slides only when needed. Read the deck first with get_deck, and any notes/plans in the workspace that
+the goal mentions. Then call finish."""
 
 
 class DeckWorker:
-    def __init__(self, agent: DynDeck, answer_timeout: float = 30) -> None:
+    def __init__(self, agent: DynDeck, answer_timeout: float = 30, ws: Path | None = None) -> None:
         self.agent = agent
+        self.ws = ws.resolve() if ws else None
         self.answer_timeout = answer_timeout
         self.human_notes: list[str] = []
 
@@ -110,6 +116,19 @@ class DeckWorker:
         await d.gate()
         if name == "get_deck":
             return self._describe()
+        if name == "list_files":
+            if not self.ws:
+                return "(no workspace)"
+            return "\n".join(str(p.relative_to(self.ws)) for p in sorted(self.ws.rglob("*"))
+                             if p.is_file() and "node_modules" not in p.parts)[:6000]
+        if name == "read_file":
+            if not self.ws:
+                return "error: no workspace"
+            p = (self.ws / inp["path"]).resolve()
+            if self.ws not in p.parents or p.suffix in (".pptx", ".png", ".jpg"):
+                return "error: can't read that file"
+            d.status(f"Reading {inp['path']}")
+            return p.read_text(errors="replace")[:15000]
         if name == "set_text":
             i, shape, text = int(inp["slide"]), str(inp["shape"]), str(inp["text"])
             d.status(f"Slide {i + 1}: {shape}")

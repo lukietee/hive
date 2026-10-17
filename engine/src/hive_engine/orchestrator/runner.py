@@ -203,7 +203,7 @@ async def run(bus: Bus, render_dir: Path, goal: str = "", workspace: str | None 
                             agent.screen_mapper = mapper
                             await asyncio.sleep(0.8)
                             agent.emit("deck_loaded", slides=_slides(pptx), base=agent.base_url, version=agent.version)
-                        dw = DeckWorker(agent, answer_timeout=timeout)
+                        dw = DeckWorker(agent, answer_timeout=timeout, ws=ws)
                         res = await dw.run(spec.goal, ctx)
                         human_notes.extend(dw.human_notes)
                     else:  # checker: waits for every producer unless told otherwise
