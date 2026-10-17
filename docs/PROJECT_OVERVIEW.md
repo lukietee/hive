@@ -623,10 +623,19 @@ Main track: **Track 4 · Applied Intelligence.** Check Devpost for a cap on spon
 
 
 ## 23. Decisions (Oct 17, afternoon)
-- **Chat surface = iMessage via Photon. No custom native phone app.**
+- **Chat surface = iMessage via Photon, plain text. No custom native phone app, no question-card web page.**
   - One 1:1 "Hive" thread (free shared lines can't do groups). Address agents with @Name / @everyone; replies are prefixed with the agent's name.
-  - Our custom UI lives on web pages linked from iMessage: the **question card** (big option buttons, context, live view) and the **👁 live view** (`/live/`). Tapback reactions work as a fallback answer.
-  - A Telegram group (native inline buttons + Mini App) is optional later; a native SwiftUI iPhone app is out (needs Xcode, weakens the Photon story).
+  - **Questions use the Claude Code pattern in plain text:** 2–4 numbered best options plus "or reply with your own". The human answers with a number, a tapback on the option, or free text (Claude interprets it). Example:
+    ```
+    Checker: The site says $39 but the deck says $29. Which price should we use?
+    1. $29 (matches the deck and the research notes)
+    2. $39 (keep the site's price)
+    Reply 1 or 2, or tell me something else.
+    ```
+  - Screenshots and photos are attached inline when they help (price mismatch, cake options, cart totals). Spending needs an explicit text approval ("Reply YES to approve $42") for Visa's trust criterion.
+  - The **👁 live view** (`/live/`) is sent as a link only on request ("@Web show me").
+  - The notch keeps its question card with buttons on the Mac; it should also get an "Other…" free-text option.
+  - A Telegram group and a native SwiftUI iPhone app are out for now.
 - **Voice: ElevenLabs hosted voice agent ⇄ Photon SIP** instead of LiveKit (fewer moving parts before tonight's bakery recording). Transcript is pulled into the engine for the Mac Call window and the iMessage memory.
 - **Browser worker = Browser Use** (separate process per agent, reports to the bus; its click/type actions emit ghost-cursor events first).
 - **Dynamic orchestrator:** the Conductor picks the agents and their tasks per goal. Scripted Pitch in 5 stays as the stage-safe playbook.
