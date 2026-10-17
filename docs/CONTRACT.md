@@ -43,7 +43,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `typing` | `{ "x", "y", "text" }` | Show a small typing indicator by the cursor |
 | `highlight` | `{ "x", "y", "w", "h", "style": "circle" \| "box" \| "select" }` | Draw a circle, box or selection handles (fade out after 2.5s unless `"sticky": true`) |
 | `link` | `{ "from": [x,y], "to": [x,y], "text"? }` | Draw a line between two points (Checker conflicts) |
-| `needs_human` | `{ "question", "options": [..], "allow_other"?: true }` | Pulse the cursor; show the question card in the notch. `allow_other` (default `true`) adds an "Other…" button for a typed answer |
+| `needs_human` | `{ "question", "options": [..], "allow_other"?: true, "details"?: [..], "image"?, "kind"?: "choice" \| "approval", "amount"? }` | Pulse the cursor; show the question card in the notch. `allow_other` (default `true`) adds an "Other…" button for a typed answer. iMessage: `details[i]` is a short note shown after option *i*; `image` (local path or URL, e.g. a screenshot) is attached before the question; `kind: "approval"` + `amount` asks for an explicit YES before spending |
 | `chat` | `{ "text" }` | (For the chat relay; the app may show it in the notch) |
 | `agent_done` | `{ "summary"? }` | Cursor flies back into the notch and disappears |
 | `swarm_summary` | `{ "title", "lines": [..] }` | Show the summary card in the notch |
@@ -66,7 +66,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim" \| "goal", "goal"?, "fast"?, "auto_human"?, "answer_timeout"? }`. `scenario: "goal"` carries the human's typed `goal` (notch "Ask Hive to…" box) for the dynamic orchestrator. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
 | `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
 | `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
-| `answer` | `{ "agent": id, "choice", "free_text"?: true }`: the reply to `needs_human`. `free_text: true` means the human typed `choice` via "Other…" instead of picking an option; interpret it rather than matching it to an option |
+| `answer` | `{ "agent": id, "choice", "free_text"?: true }`: the reply to `needs_human`. `free_text: true` means the human typed `choice` in their own words (notch "Other…" or an iMessage reply that isn't one of the options); interpret it rather than matching it to an option. For `kind: "approval"`, `choice` is `"YES"` or `"NO"` |
 | `deck_viewer` | `{ "x", "y", "w", "h" }`: the native Deck Viewer's big-slide rect at 1× zoom, in screen points. Sent when the viewer appears, moves or resizes, and on (re)connect |
 | `deck_box` | `{ "slide", "label", "x", "y", "w", "h" }`: reply to each `deck_focus`, the focused box's **final on-screen rect after the viewer's zoom**, in screen points. Arrives within ~50 ms of `deck_focus` |
 
@@ -96,6 +96,15 @@ The relay is a bus client: it follows `ws://127.0.0.1:8765`, and each `BrowserAg
 
 Frames are "latest wins" per viewer, so a slow phone drops frames instead of lagging behind.
 
+## iMessage thread (Messenger)
+`uv run python -m hive_engine.messenger --fake | --photon` — a bus client (no engine changes) that bridges the bus to one plain-text iMessage thread with the owner (`HIVE_OWNER_PHONE`). Fake transport: Messages-style page + WS at **`http://127.0.0.1:8769/`** (`HIVE_CHAT_PORT`). Photon transport: REST, see `docs/PHOTON_SETUP.md`.
+
+- **Out:** `chat`, `agent_done` (with a summary), `swarm_summary`, `call_ended` ("Call with Bakery ended. <summary>") → `"Name: …"` texts, batched over `HIVE_MESSENGER_BATCH_S` (2s). `agent_status` and cursor events are never texted. Emoji are stripped.
+- **Questions:** `needs_human` → numbered options + "Reply 1 or 2, or tell me something else." The reply `1`/`2`/the option text maps to that option; anything else is mapped by Claude when it clearly picks an option, otherwise sent as `answer {choice: <text>, free_text: true}`. Approvals accept only `YES` / `NO`.
+- **In:** `@Name …` → `say {agent}` (or answers that agent's pending question); `@everyone …` → `say {}`; `@Web show me` → reply with the live view URL (`HIVE_PUBLIC_LIVE_URL`, else `http://<LAN IP>:8766/live/`); `start` / `start party` / `pause` / `resume` → those commands; unaddressed text answers the latest pending question, else goes to `say {}`.
+
+## Agent memory (text side)
+`engine/state/messages/<agent>.jsonl` (gitignored with `engine/state/`; `HIVE_STATE_DIR` / `HIVE_MEMORY_DIR` override), via `hive_engine.memory.append(agent, kind, text)` / `read(agent)`: one `{ts, agent, kind: "text_in"|"text_out", text}` per line. When the owner texts `@Cake …` after that agent has finished, the Messenger answers with Claude from this text memory **plus** `CallMemory().context_text("cake")` (below), so a phone call carries over into text.
 
 ## Calls (phone, via ElevenLabs ⇄ Photon SIP)
 Any agent can place a call: `await hive_engine.calls.place_call(agent, to="+1…", label="Bakery", goal="…", context={…}, follow_up=False)`.

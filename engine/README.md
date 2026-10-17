@@ -21,6 +21,9 @@ uv run python -m hive_engine --scenario pitch_in_5 --fast --auto-human   # ~1 mi
 uv run python -m hive_engine --wait                   # no auto-run: serve {"cmd":"start"} (notch Start button) until Ctrl-C
 uv run python -m hive_engine --scenario pitch_in_5 --stay   # auto-run once, then keep serving start commands
 uv run python tools/ws_tail.py                         # in another terminal: print every bus event
+uv run python -m hive_engine.messenger --fake         # iMessage thread, faked: http://127.0.0.1:8769/
+uv run python -m hive_engine.messenger --photon       # the real thread via Photon (docs/PHOTON_SETUP.md)
+uv run python tools/chat_check.py                      # a script plays the phone against --fake
 ```
 - Bus: `ws://127.0.0.1:8765`
 - Static server: `http://127.0.0.1:8766` (`/viewer/index.html`, `/test/form.html`, `/render/slide-N.png`)
@@ -54,6 +57,9 @@ Human moments time out to a default (`--answer-timeout`, 8s), so the run never h
 | `testpages/form.html` | Local page the demo_sim agents work on; records real click coordinates for verification |
 | `tools/ws_tail.py` | Debug client that prints or records events |
 | `live/` | 👁 live view. `stream.py`: per-agent Chrome screencast (starts automatically in `BrowserAgent.open`, `HIVE_LIVE=0` to disable). `relay.py`: `ws://127.0.0.1:8767`, follows the bus, maps cursors to page fractions, latest-wins frames. `web/index.html`: phone page at **http://127.0.0.1:8766/live/** (tile grid, cursors, tap to focus + chat log; Telegram WebApp-aware) |
+| `messenger/` | iMessage thread ⇄ bus (a bus client). `core.py` routing, `fmt.py` question formatting + reply parsing, `transports.py` fake Messages page (:8769) and Photon REST (send + poll), `web/chat.html`. See CONTRACT "iMessage thread" |
+| `memory.py` | Per-agent text memory in `engine/state/messages/<agent>.jsonl`. The Messenger reads it together with `calls.CallMemory` to answer `@Agent …` after the agent finished (e.g. "@Cake did they say 6?") |
+| `tools/chat_check.py` | Plays the owner's phone against the fake thread: texts `start`, answers questions (number + free text), `@Social make it shorter`, `@Web show me`; prints the transcript |
 | `tools/live_check.py` | Run during a scenario: per-agent fps / size / latency over the relay + a headless screenshot of the live page |
 
 ## Verified (Oct 17, on this Mac: macOS 26.4, Retina, Chrome)
@@ -64,6 +70,8 @@ Human moments time out to a default (`--answer-timeout`, 8s), so the run never h
 - **pitch_in_5 (Oct 17):** 6 runs end to end, 0 agent errors. Tests 2 pass/1 fail/2 todo → **5/5**. $39 vs $29 caught and fixed on the site; post ≤280 chars with the price. 16 deck boxes filled, ~0.6–0.9s per render. **18 real clicks per run, each within ≤1.2 pt of the ghost cursor** (Chrome reports integer click coords; element centers are fractional). Native Deck Viewer path (simulated `deck_viewer`/`deck_box` client): 16 Deck cursor moves landed on the `deck_box` centers (≤0.08 pt), no duplicate selection highlights. Timing: ~2:00 normal with instant answers (~2:10 with timeouts), ~1 min `--fast --auto-human`.
 
 - **Live view (👁):** demo_sim with 3 windows (500×359 viewports), 22s: ~4.5 fps per agent (Chrome only sends frames on repaint; capped at 8), ~27 KB per JPEG, **capture → client latency ~5 ms median, ~11 ms p95** on localhost. Cursor fractions land on the right buttons in the page's frames (headless screenshot checked).
+
+- **iMessage thread (fake transport, Oct 17):** pitch_in_5 started by texting `start`; Deck's market question answered in free text, Checker's price question with `1` ($29 applied on the site), `@Social make it shorter` honored, `@Web show me` answered with the live URL; ~30 texts total, status chatter batched. With a key, Claude mapped "go with the bigger one, matcha plus specialty tea" → $4B and "just matcha" → $2B, and answered "@Cake did they say it'd be ready by 6?" from a stored call transcript. Photon transport written against Photon's OpenAPI but **not run** (no keys).
 
 ### Live view on a phone
 - **Same Wi-Fi:** run with `HIVE_LIVE_HOST=0.0.0.0` and also bind the static server to `0.0.0.0` (it's `127.0.0.1` now, in `http_server.py`), then open `http://<Mac LAN IP>:8766/live/`. The page connects to port 8767 on the same host. Campus Wi-Fi often blocks device-to-device traffic, so a phone hotspot is safer.
