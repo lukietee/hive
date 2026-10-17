@@ -1,22 +1,35 @@
 import AppKit
+import Combine
 import SwiftUI
 
 // MARK: - Panel
+
+/// Non-activating panel that may take key focus only while a notch text field is being edited,
+/// so it never steals focus from the app you're working in otherwise.
+final class NotchPanel: NSPanel {
+    var allowsKey = false
+    override var canBecomeKey: Bool { allowsKey }
+    override var canBecomeMain: Bool { false }
+}
 
 @MainActor
 final class NotchPanelController {
     static let panelSize = CGSize(width: 640, height: 460)
 
-    private(set) var panel: NSPanel
+    private(set) var panel: NotchPanel
     private let store: HiveStore
     private var notchSize: CGSize = .zero
     private var trackTimer: Timer?
     private var leaveWork: DispatchWorkItem?
+    private var editingSub: AnyCancellable?
+    private var resignObserver: NSObjectProtocol?
+    /// App that was frontmost before the notch took key focus; gets focus back afterwards.
+    private var previousApp: NSRunningApplication?
 
     init(store: HiveStore) {
         self.store = store
-        panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
-                        backing: .buffered, defer: false)
+        panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                           backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -31,6 +44,40 @@ final class NotchPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         layout()
         startTracking()
+        editingSub = store.$editing
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] editing in
+                MainActor.assumeIsolated { editing ? self?.takeFocus() : self?.returnFocus() }
+            }
+        // Clicking anywhere else (another app takes key) cancels a half-typed field.
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.store.editing != nil else { return }
+                self.previousApp = nil  // the user already moved on; don't yank focus back
+                self.store.endEditing()
+            }
+        }
+    }
+
+    // MARK: Keyboard focus
+
+    private func takeFocus() {
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = front }
+        panel.allowsKey = true
+        panel.ignoresMouseEvents = false
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    private func returnFocus() {
+        let wasKey = panel.isKeyWindow
+        panel.allowsKey = false
+        if wasKey { panel.resignKey() }
+        previousApp?.activate()
+        previousApp = nil
     }
 
     /// (Re)positions the panel at the top-center of the notch screen.
@@ -91,7 +138,7 @@ final class NotchPanelController {
     }
 }
 
-/// Buttons should work on the first click even though the panel never becomes key.
+/// Buttons should work on the first click even though the panel is usually not key.
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
@@ -114,6 +161,8 @@ enum NotchMetrics {
     static let summaryHeader: CGFloat = 30
     static let summaryLine: CGFloat = 24
     static let peekRow: CGFloat = 34
+    static let field: CGFloat = 34            // goal box / "Other…" text field
+    static let peekWidth: CGFloat = 460
     static let compactWing: CGFloat = 96      // width of each side of the compact Live Activity
 
     static func gridHeight(agents n: Int) -> CGFloat {
@@ -134,9 +183,11 @@ enum NotchLayout {
         case .compact:
             return CGSize(width: notch.width + 2 * (M.flare + M.compactWing), height: notch.height)
         case .peek:
-            return CGSize(width: max(notch.width + 240, 420), height: top + M.peekRow + M.bottomPad)
+            return CGSize(width: max(notch.width + 2 * M.flare + 240, M.peekWidth),
+                          height: top + M.peekRow + M.section + M.field + M.bottomPad)
         case .expanded:
             var h = top + M.header
+            if store.editing == .goal { h += M.section + M.field }
             let n = store.visibleAgents.count
             if n > 0 { h += M.section + M.gridHeight(agents: n) }
             if store.question != nil { h += M.section + M.question }
@@ -323,6 +374,14 @@ struct NotchView: View {
     // MARK: Peek (idle + hover)
 
     private var peekContent: some View {
+        VStack(spacing: NotchMetrics.section) {
+            peekTopRow
+            GoalBox(store: store)
+                .frame(height: NotchMetrics.field)
+        }
+    }
+
+    private var peekTopRow: some View {
         HStack(spacing: 10) {
             HiveMark(size: 26)
             VStack(alignment: .leading, spacing: 1) {
@@ -365,6 +424,12 @@ struct NotchView: View {
         VStack(alignment: .leading, spacing: NotchMetrics.section) {
             header.frame(height: NotchMetrics.header)
 
+            if store.editing == .goal {
+                GoalBox(store: store)
+                    .frame(height: NotchMetrics.field)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             if !store.visibleAgents.isEmpty {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: NotchMetrics.rowGap),
                                     GridItem(.flexible(), spacing: NotchMetrics.rowGap)],
@@ -381,7 +446,7 @@ struct NotchView: View {
             }
 
             if let q = store.question {
-                QuestionCard(question: q) { store.answer($0) }
+                QuestionCard(question: q, store: store)
                     .frame(height: NotchMetrics.question)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -568,7 +633,7 @@ struct AgentRow: View {
 /// needs_human: a notification-style card with one button per option.
 struct QuestionCard: View {
     let question: HumanQuestion
-    let onAnswer: (String) -> Void
+    @ObservedObject var store: HiveStore
 
     private var style: AgentStyle { AgentPalette.style(for: question.agent) }
     private var rgb: RGB { RGB(hex: style.hex) }
@@ -592,22 +657,158 @@ struct QuestionCard: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                ForEach(Array(question.options.enumerated()), id: \.offset) { i, opt in
-                    Button { onAnswer(opt) } label: {
-                        Text(opt)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 30)
+            if store.editing == .other {
+                NotchTextField(store: store, placeholder: "Type your own answer", symbol: "text.cursor",
+                               tint: rgb.color)
+                    .frame(height: 30)
+                    .transition(.opacity)
+            } else {
+                HStack(spacing: 8) {
+                    ForEach(Array(question.options.enumerated()), id: \.offset) { i, opt in
+                        Button { store.answer(opt) } label: {
+                            Text(opt)
+                                .font(.system(size: 12, weight: .semibold))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 30)
+                        }
+                        .buttonStyle(OptionButtonStyle(prominent: i == 0, tint: rgb.color, onTint: rgb.onColor))
                     }
-                    .buttonStyle(OptionButtonStyle(prominent: i == 0, tint: rgb.color, onTint: rgb.onColor))
+                    if question.allowOther {
+                        Button { store.beginEditing(.other) } label: {
+                            Text("Other…")
+                                .font(.system(size: 12, weight: .semibold))
+                                .lineLimit(1)
+                                .frame(width: 84)
+                                .frame(height: 30)
+                        }
+                        .buttonStyle(OptionButtonStyle(prominent: false, tint: rgb.color, onTint: rgb.onColor))
+                        .help("Type your own answer")
+                    }
                 }
+                .transition(.opacity)
             }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(HiveStyle.fill))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(HiveStyle.hairline, lineWidth: 1))
+    }
+}
+
+/// True while `Hive --snapshot` renders the notch: AppKit-backed text fields don't draw in
+/// ImageRenderer, so fields render as static text instead.
+private struct NotchSnapshotKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var notchSnapshot: Bool {
+        get { self[NotchSnapshotKey.self] }
+        set { self[NotchSnapshotKey.self] = newValue }
+    }
+}
+
+/// "Ask Hive to…": a placeholder capsule until clicked, then a focused text field.
+/// Return starts a run with that goal (start {scenario: "goal", goal}).
+struct GoalBox: View {
+    @ObservedObject var store: HiveStore
+
+    var body: some View {
+        if store.editing == .goal {
+            NotchTextField(store: store, placeholder: "Ask Hive to…", symbol: "sparkle",
+                           tint: Color(red: 1, green: 0.74, blue: 0.12))
+        } else {
+            Button { store.beginEditing(.goal) } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkle")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(HiveStyle.secondary)
+                    Text("Ask Hive to…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(HiveStyle.tertiary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Capsule().fill(HiveStyle.fill))
+                .overlay(Capsule().strokeBorder(HiveStyle.hairline, lineWidth: 1))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(PressableStyle())
+            .help("Type a goal and press Return")
+        }
+    }
+}
+
+/// Single-line field used by the goal box and the "Other…" answer. Return submits, Esc cancels.
+struct NotchTextField: View {
+    @ObservedObject var store: HiveStore
+    let placeholder: String
+    let symbol: String
+    var tint: Color = .white
+    @FocusState private var focused: Bool
+    @Environment(\.notchSnapshot) private var snapshot
+
+    private var canSubmit: Bool { !store.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+            field
+            Button { store.endEditing() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(HiveStyle.tertiary)
+            }
+            .buttonStyle(PressableStyle())
+            .help("Cancel (Esc)")
+            Button { store.submitDraft() } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 20))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color.black, canSubmit ? tint : Color.white.opacity(0.18))
+            }
+            .buttonStyle(PressableStyle())
+            .disabled(!canSubmit)
+            .help("Send (Return)")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 5)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Capsule().fill(Color.white.opacity(0.1)))
+        .overlay(Capsule().strokeBorder(tint.opacity(0.55), lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var field: some View {
+        if snapshot {
+            HStack(spacing: 1) {
+                Text(store.draft.isEmpty ? placeholder : store.draft)
+                    .font(.system(size: 12))
+                    .foregroundStyle(store.draft.isEmpty ? HiveStyle.tertiary : HiveStyle.primary)
+                    .lineLimit(1)
+                Rectangle().fill(tint).frame(width: 1.5, height: 15)
+                Spacer(minLength: 0)
+            }
+        } else {
+            TextField("", text: $store.draft, prompt: Text(placeholder).foregroundStyle(HiveStyle.tertiary))
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(HiveStyle.primary)
+                .focused($focused)
+                .onSubmit { store.submitDraft() }
+                .onExitCommand { store.endEditing() }
+                .onKeyPress(.escape) {
+                    store.endEditing()
+                    return .handled
+                }
+                .onAppear {
+                    // The panel becomes key as editing starts; focus once it has.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused = true }
+                }
+        }
     }
 }
 

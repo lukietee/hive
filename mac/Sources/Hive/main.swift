@@ -101,6 +101,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                       "data": ["question": "Site says $39, deck says $29. Which?", "options": ["$29", "$39"]]])
             s.answer("$29")            // answer {agent: checker, choice: $29}
             self.log("selftest: question cleared = \(s.question == nil)")
+            // "Other…" free-text answer, through the same path as the text field's Return key.
+            s.handle(["type": "needs_human", "agent": "checker",
+                      "data": ["question": "Which price?", "options": ["$29", "$39"]]])
+            s.beginEditing(.other)
+            s.draft = "Use $25 for students, $29 otherwise"
+            s.submitDraft()            // answer {agent: checker, choice: …, free_text: true}
+            self.log("selftest: other cleared = \(s.question == nil && s.editing == nil)")
+            // Goal box.
+            s.beginEditing(.goal)
+            s.draft = "Make a landing page for my club"
+            s.submitDraft()            // start {scenario: goal, goal: …}
+            self.log("selftest: goal editing ended = \(s.editing == nil)")
             try? await Task.sleep(for: .milliseconds(500))
             NSApp.terminate(nil)
         }
@@ -129,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.image = icon
         let menu = NSMenu()
         menu.delegate = self
+        menu.addItem(makeItem("New Goal…", #selector(newGoal), key: "n"))
         menu.addItem(makeItem("Start Pitch in 5", #selector(startPitch), key: "p"))
         menu.addItem(makeItem("Start demo_sim", #selector(startDemoSim), key: "d"))
         let pause = makeItem("Pause All Agents", #selector(togglePauseAll), key: "")
@@ -154,6 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return mi
     }
 
+    @objc private func newGoal() { store.beginEditing(.goal) }
     @objc private func startPitch() { store.start("pitch_in_5") }
     @objc private func startDemoSim() { store.start("demo_sim") }
     @objc private func togglePauseAll() { store.togglePauseAll() }

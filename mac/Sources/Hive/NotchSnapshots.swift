@@ -11,6 +11,11 @@ enum NotchSnapshots {
         let states: [(String, (HiveStore) -> Void)] = [
             ("1-idle", { _ in }),
             ("2-peek", { s in s.connected = true; s.hovering = true }),
+            ("2b-peek-goal", { s in
+                s.connected = true
+                s.editing = .goal
+                s.draft = "Make a landing page for my club and a 3-slide deck"
+            }),
             ("3-working", { s in populate(s); s.hovering = true; s.handle(ev("chat", "web", ["text": "🔵 Pricing section filled in"])) }),
             ("3b-compact", { s in populate(s) }),
             ("3c-compact-party", { s in
@@ -21,6 +26,18 @@ enum NotchSnapshots {
                 populate(s)
                 s.handle(ev("needs_human", "checker", ["question": "The site says $39 but the deck says $29. Which price is right?",
                                                         "options": ["$29", "$39"]]))
+            }),
+            ("4b-question-other", { s in
+                populate(s)
+                s.handle(ev("needs_human", "checker", ["question": "The site says $39 but the deck says $29. Which price is right?",
+                                                        "options": ["$29", "$39"]]))
+                s.editing = .other
+                s.draft = "Use $25 for students, $29 otherwise"
+            }),
+            ("4c-question-no-other", { s in
+                populate(s)
+                s.handle(ev("needs_human", "treasurer", ["question": "Approve the $42 DoorDash order?",
+                                                          "options": ["Approve", "Decline"], "allow_other": false]))
             }),
             ("5-paused", { s in populate(s); s.hovering = true; s.paused = ["social"] }),
             ("6b-summary-compact", { s in
@@ -52,6 +69,7 @@ enum NotchSnapshots {
                                startPoint: .topLeading, endPoint: .bottomTrailing)
                 Rectangle().fill(Color.white.opacity(0.18)).frame(height: notch.height)  // menu bar
                 NotchView(store: store, notchSize: notch)
+                    .environment(\.notchSnapshot, true)
             }
             .frame(width: size.width, height: size.height)
             .transaction { $0.animation = nil }
