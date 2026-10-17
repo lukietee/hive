@@ -9,10 +9,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from websockets.asyncio.server import ServerConnection, broadcast, serve
+
+from .agents import find_agent_by_name
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -21,6 +24,11 @@ log = logging.getLogger("hive.bus")
 
 HOST = "127.0.0.1"
 PORT = 8765
+
+
+def _waiting(agent: Agent) -> bool:
+    fut = getattr(agent, "_pending_answer", None)
+    return fut is not None and not fut.done()
 
 
 class Bus:
@@ -32,6 +40,7 @@ class Bus:
         # Messages from the human not addressed to a specific agent (e.g. "@everyone ...").
         self.conductor_inbox: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.on_start: Callable[[str], Awaitable[None]] | None = None
+        self.running = False  # set by scenarios that should ignore a second {"cmd": "start"}
         self.history: list[dict[str, Any]] = []  # replayed to late joiners (spawns etc.)
         self._server = None
 
@@ -83,7 +92,9 @@ class Bus:
         agents = [self.agents[target]] if target in self.agents else list(self.agents.values())
 
         if cmd == "start":
-            if self.on_start:
+            if self.running:
+                log.info("start ignored: a scenario is already running")
+            elif self.on_start:
                 asyncio.create_task(self.on_start(args.get("scenario", "demo_sim")))
         elif cmd == "pause":
             for a in agents:
@@ -92,11 +103,19 @@ class Bus:
             for a in agents:
                 a.resume()
         elif cmd == "say":
+            text = args.get("text", "")
+            if target not in self.agents:  # "@Social make it shorter" → route by mention
+                m = re.match(r"\s*@(\w+)[\s,:]*(.*)", text, re.S)
+                if m and (aid := find_agent_by_name(m.group(1))) in self.agents:
+                    target, text = aid, m.group(2).strip() or text
             if target in self.agents:
-                await self.agents[target].inbox.put({"from": "human", "text": args.get("text", "")})
+                await self.agents[target].inbox.put({"from": "human", "text": text})
             else:
-                await self.conductor_inbox.put({"from": "human", "text": args.get("text", "")})
+                await self.conductor_inbox.put({"from": "human", "text": text})
         elif cmd == "answer":
+            # Without a (known) agent, answer whichever agent is currently waiting on the human.
+            if target not in self.agents:
+                target = next((a.id for a in self.agents.values() if _waiting(a)), None)
             if target in self.agents:
                 self.agents[target].answer(args.get("choice"))
         else:
