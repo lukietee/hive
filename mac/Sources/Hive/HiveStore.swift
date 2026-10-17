@@ -23,6 +23,7 @@ final class HiveStore: ObservableObject {
     @Published var hovering = false
     /// Where notch/menu commands go: the engine socket, or the simulator log.
     var onCommand: ((String, [String: Any]) -> Void)?
+    let deck = DeckViewerModel()
 
     private var typingTokens: [String: Int] = [:]
     private var chatToken = 0
@@ -52,6 +53,7 @@ final class HiveStore: ObservableObject {
             paused = []
             allPaused = false
         }
+        deck.reset()
     }
 
     // MARK: - Event handling
@@ -93,6 +95,7 @@ final class HiveStore: ObservableObject {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 budget = Budget(spent: num(d["spent"]) ?? 0, total: num(d["total"]) ?? 0, caps: caps)
             }
+        case "deck_loaded", "deck_focus", "deck_slide_updated": deck.handle(type, d)
         default:
             break
         }
