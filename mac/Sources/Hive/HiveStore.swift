@@ -16,6 +16,7 @@ final class HiveStore: ObservableObject {
     @Published var question: HumanQuestion? = nil
     @Published var lastChat: ChatLine? = nil
     @Published var connected = false
+    let deck = DeckViewerModel()
 
     private var typingTokens: [String: Int] = [:]
     private var chatToken = 0
@@ -43,6 +44,7 @@ final class HiveStore: ObservableObject {
             question = nil
             lastChat = nil
         }
+        deck.reset()
     }
 
     // MARK: - Event handling
@@ -84,6 +86,7 @@ final class HiveStore: ObservableObject {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 budget = Budget(spent: num(d["spent"]) ?? 0, total: num(d["total"]) ?? 0, caps: caps)
             }
+        case "deck_loaded", "deck_focus", "deck_slide_updated": deck.handle(type, d)
         default:
             break
         }
