@@ -13,8 +13,8 @@ swift build
 ./.build/debug/Hive --sim-fallback   # try the engine; run the demo if it's not up after 3s
 ```
 
-- **Quit:** 🐝 menu-bar item → Quit Hive, or Ctrl-C in the terminal.
-- **The 🐝 menu also has:** Start Pitch in 5, Start demo_sim, Pause/Resume All Agents, Run / Stop Simulation (no engine) and Reconnect to Engine.
+- **Quit:** hexagon menu-bar item → Quit Hive, or Ctrl-C in the terminal.
+- **The hexagon menu also has:** Start Pitch in 5, Start demo_sim, Pause/Resume All Agents, Run / Stop Simulation (no engine) and Reconnect to Engine.
 - **Permissions:** none are needed. The overlay only draws; it never clicks.
 - **Other engine:** `HIVE_ENGINE_URL=ws://host:port ./.build/debug/Hive`.
 
@@ -35,7 +35,7 @@ The panel is click-through everywhere except over the black shape you can see, s
 | `HiveStore.swift` | `@MainActor ObservableObject`, the single state store; handles every contract event type |
 | `EngineClient.swift` | `URLSessionWebSocketTask` client; auto-reconnect every 2s; `send(cmd:args:)` for commands |
 | `Notch.swift` | Non-activating `NSPanel` above the menu bar, hit-tested to its visible shape; idle pill → peek (hover, Start button) → expanded (clickable agent pills with progress rings, pause-all, countdown, budget bar, answerable question row, last chat line) → summary card; spring animations |
-| `NotchActions.swift` | Human → engine commands (`start`, `pause`/`resume`, `answer`) used by the notch and the 🐝 menu |
+| `NotchActions.swift` | Human → engine commands (`start`, `pause`/`resume`, `answer`) used by the notch and the hexagon menu |
 | `Overlay.swift` | Transparent, click-through `.screenSaver`-level windows; cursors (arrow + name tag + caption), eased glides, click ripples, typing bubble, highlights (circle / box / select handles), dashed link lines, `needs_human` pulse ring, `agent_done` flies back into the notch |
 | `Geometry.swift` | Contract coordinates (global, top-left, y down) ⇄ AppKit coordinates; notch size/anchor via `auxiliaryTopLeft/RightArea` + `safeAreaInsets` |
 | `Simulator.swift` | Scripted demo emitting real contract envelopes: 5 agents, Sentry fix, a Checker conflict link, a Deck question, wrap-up + summary |

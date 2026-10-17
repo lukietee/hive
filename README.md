@@ -36,7 +36,7 @@ macOS permissions (System Settings → Privacy & Security): give your terminal *
 
 ## Run
 ```bash
-# UI preview only, no engine (~40s scripted demo; quit from the 🐝 menu-bar item)
+# UI preview only, no engine (~40s scripted demo; quit from the hexagon menu-bar item)
 mac/.build/debug/Hive --sim
 
 # Real agents: start the app first, then the engine
