@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 *.log
 .claude/
+
+# Engine runtime state (call memory, TTS cache)
+engine/state/
