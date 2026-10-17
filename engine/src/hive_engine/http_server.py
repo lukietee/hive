@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import functools
+import os
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -47,6 +48,8 @@ def start_http(render_dir: Path, port: int = HTTP_PORT) -> ThreadingHTTPServer:
         "/render": render_dir,
         "/live": Path(__file__).resolve().parent / "live" / "web",
     }
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    # HIVE_LIVE_HOST=0.0.0.0 also opens this server to the LAN, so a phone can load /live/.
+    host = os.environ.get("HIVE_LIVE_HOST", "127.0.0.1")
+    server = ThreadingHTTPServer((host, port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
