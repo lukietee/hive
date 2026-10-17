@@ -44,8 +44,32 @@ class HiveChatAnthropic(ChatAnthropic):
     tool_choice=auto plus its text-recovery path — which sometimes returns malformed actions. Haiku 5.5
     still accepts a forced tool call, so it is the default browser model (reliable action format, cheap)."""
 
+    # action name → its parameter names; filled from the Tools registry in main().
+    ACTIONS: dict[str, set[str]] = {}
+    BRAIN = {"thinking", "evaluation_previous_goal", "memory", "next_goal", "current_plan_item", "plan_update", "action"}
+
     def _requires_auto_tool_choice(self) -> bool:  # noqa: D401
         return "haiku" not in self.model.lower() or super()._requires_auto_tool_choice()
+
+    def _repair_serialized_fields(self, data):  # type: ignore[override]
+        """Extra repairs for malformed AgentOutput tool calls seen with Claude 5.5 models:
+        stray keys like `action_placeholder: null`, and an action whose params were flattened to the top
+        level (e.g. {"url": ..., "new_tab": false} with no `action`) — rebuilt from the action registry."""
+        data = super()._repair_serialized_fields(data)
+        if not isinstance(data, dict):
+            return data
+        extra = {k: v for k, v in data.items() if k not in self.BRAIN}
+        clean = {k: v for k, v in data.items() if k in self.BRAIN}
+        leftover = {k: v for k, v in extra.items() if v is not None and not k.endswith("placeholder")}
+        if "action" not in clean and leftover:
+            if len(leftover) == 1 and (name := next(iter(leftover))) in self.ACTIONS and isinstance(leftover[name], dict):
+                clean["action"] = [leftover]  # {"navigate": {...}} at the top level
+            else:
+                best = max(self.ACTIONS.items(), key=lambda kv: (len(set(leftover) & kv[1]) - len(set(leftover) - kv[1])),
+                           default=None)
+                if best and set(leftover) <= best[1]:
+                    clean["action"] = [{best[0]: leftover}]
+        return clean
 
 
 GLIDE_MS = int(os.environ.get("HIVE_GLIDE_MS", "450"))
@@ -161,7 +185,7 @@ async def _read_answer() -> str:
 
 
 def make_tools() -> Tools:
-    tools = Tools()
+    tools = Tools(exclude_actions=["upload_file", "evaluate"])  # no file uploads or raw JS on real sites
 
     @tools.action("Ask the human a question when you truly need their decision. Give 2-4 concrete options; "
                   "they may also answer in their own words.")
@@ -185,6 +209,9 @@ async def main() -> None:
 
     logging.getLogger("browser_use").setLevel(logging.WARNING)
     install_cursor_hooks()
+    tools = make_tools()
+    HiveChatAnthropic.ACTIONS = {name: set(ra.param_model.model_fields) for name, ra in
+                                 tools.registry.registry.actions.items() if ra.param_model is not None}
     session = BrowserSession(cdp_url=args.cdp_url, keep_alive=True)
     llm = HiveChatAnthropic(model=args.model, api_key=os.environ.get("ANTHROPIC_API_KEY"))
     state = {"steps": 0}
@@ -198,7 +225,7 @@ async def main() -> None:
             pass
         send({"ev": "status", "text": goal[:90] or f"Step {step}", "progress": min(0.95, step / args.max_steps)})
 
-    agent = Agent(task=args.task, llm=llm, browser_session=session, tools=make_tools(),
+    agent = Agent(task=args.task, llm=llm, browser_session=session, tools=tools,
                   extend_system_message=SAFETY, register_new_step_callback=on_step,
                   use_judge=False, enable_signal_handler=False, max_actions_per_step=4,
                   calculate_cost=True, generate_gif=False)

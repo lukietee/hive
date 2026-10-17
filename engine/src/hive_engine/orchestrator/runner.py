@@ -107,7 +107,7 @@ def cost_estimate(browser_costs: float) -> float:
 
 async def run(bus: Bus, render_dir: Path, goal: str = "", workspace: str | None = None,
               urls: list[str] | None = None, auto_human: bool = False, answer_timeout: float | None = None,
-              max_browser_steps: int = 20, keep_open: float = 3.0, **_: Any) -> dict:
+              max_browser_steps: int = 25, keep_open: float = 3.0, **_: Any) -> dict:
     if not goal:
         raise ValueError("goal scenario needs a goal")
     t0 = time.monotonic()

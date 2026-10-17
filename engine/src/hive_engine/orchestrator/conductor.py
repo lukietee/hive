@@ -44,6 +44,8 @@ parallelise independent work) and what each one does. Worker types:
 - deck: builds or edits a PowerPoint deck (python-pptx) shown live in the Deck Viewer.
 - checker: reviews the other agents' results for contradictions/mistakes and asks the human when a decision is needed.
   Add one only when there are 2+ producing agents whose outputs must agree.
+Browser agents are slow (~5 s per step, ~25 steps max): keep each browser goal small and focused, ask only for what
+the user asked for, and split broad research across parallel browser agents (e.g. one per item) instead of one long list.
 Rules: each goal must be concrete and self-contained (the agent sees nothing else). Name agents by role
 (e.g. Fixer, Scout, Designer), 1-2 words. Pick distinct colors from {PALETTE} and SF Symbols from
 {sorted(SYMBOLS)}. depends_on lists only earlier agents whose results are needed first.
@@ -91,8 +93,10 @@ async def replan(goal: str, specs: list[AgentSpec], results: dict[str, WorkerRes
                        f"{results[s.id].detail[:800]}" for s in specs if s.id in results)
     notes = "\n".join(f"- {n}" for n in human_notes) or "(none)"
     prompt = (f"GOAL: {goal}\n\nWhat the team did:\n{report}\n\nDecisions from the human:\n{notes}\n\n"
-              "Is the goal fully met? If not, propose at most 2 follow-up agents (new ids) to finish it. "
-              "Don't redo work that succeeded. If a failure can't be fixed by another attempt, mark done.")
+              "Is the goal as stated fully met? Judge only what the goal asked for; problems outside its scope "
+              "(things nobody asked to fix) are NOT a reason to continue — mention them in reason instead. "
+              "If something the goal asked for is missing or broken, propose at most 2 follow-up agents (new ids) "
+              "to finish it. Don't redo work that succeeded. If a failure can't be fixed by another attempt, mark done.")
     try:
         raw = await llm.call_tool(SYSTEM, prompt, "submit_followup", REPLAN_SCHEMA, "Submit the follow-up decision.")
     except Exception as exc:
