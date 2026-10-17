@@ -1,0 +1,11 @@
+{
+  "name": "whisk-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Whisk — matcha delivered to your dorm. Demo product for the Hive 'Pitch in 5' demo.",
+  "scripts": {
+    "test": "node --test",
+    "start": "node src/server.js"
+  },
+  "license": "UNLICENSED"
+}

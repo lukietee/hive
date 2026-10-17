@@ -1,0 +1,41 @@
+{
+  "_note": "Intended final content for every placeholder in pitch.pptx. Rehearsal reference for the Deck agent's fills. Numbers are illustrative demo data for a fictional startup.",
+  "deck": "pitch.pptx",
+  "order_of_fills": [
+    "s3_title", "s3_body", "s5_img_slot", "s5_img_slot_2", "s7_title", "s7_stat", "s7_body",
+    "s1_img_slot", "s3_img_slot", "s6_title", "s6_stat", "s6_body", "s10_body", "s10_img_slot"
+  ],
+  "slides": {
+    "1": {
+      "s1_img_slot": { "type": "image", "source": "logo from Design agent (Procreate + Gemini), fallback ../site/FINISHED/logo.svg rendered to PNG", "depends_on": "design" }
+    },
+    "3": {
+      "s3_title": { "type": "text", "value": "A matcha subscription built for campus life." },
+      "s3_body": { "type": "bullets", "value": [
+        "Ceremonial-grade matcha, sourced from Uji, Kyoto",
+        "Delivered weekly to dorms, timed to class schedules",
+        "Referral credits turn every customer into a sales channel"
+      ] },
+      "s3_img_slot": { "type": "image", "source": "logo (same as slide 1)", "depends_on": "design" }
+    },
+    "5": {
+      "s5_title": { "type": "text", "value": "Live today." },
+      "s5_img_slot": { "type": "image", "source": "screenshot of the passing signup flow / test run from Builder", "depends_on": "builder" },
+      "s5_img_slot_2": { "type": "image", "source": "screenshot of the finished landing page from Web", "depends_on": "web" }
+    },
+    "6": {
+      "s6_title": { "type": "text", "value": "A $4B market, and growing." },
+      "s6_stat": { "type": "text", "value": "$4B", "check_in": "Ask the human: $2B or $4B? (two estimates in ../research/market_notes.md). Demo answer: $4B" },
+      "s6_body": { "type": "text", "value": "US matcha & specialty tea spend by 18–24-year-olds (illustrative; see research notes)." }
+    },
+    "7": {
+      "s7_title": { "type": "text", "value": "Simple, student-friendly pricing." },
+      "s7_stat": { "type": "text", "value": "$29/mo", "checker": "Must match the landing page. Site starts with an old $39 note, so Checker flags the mismatch and Web fixes it to $29." },
+      "s7_body": { "type": "bullets", "value": ["Standard: $29/mo, 4 tins", "Student (.edu): $19/mo", "~62% gross margin at scale (illustrative)"] }
+    },
+    "10": {
+      "s10_body": { "type": "text", "value": "<live Vercel URL from Web>", "depends_on": "web" },
+      "s10_img_slot": { "type": "image", "source": "QR code for the live URL", "depends_on": "web" }
+    }
+  }
+}

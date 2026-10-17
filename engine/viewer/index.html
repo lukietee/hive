@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hive Deck Viewer</title>
+<style>
+  :root { --bg:#111214; --panel:#1b1c20; --line:#2a2b31; --text:#e8e8ea; --muted:#8a8b93; --accent:#FFCC00; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
+               font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Inter", sans-serif; }
+  #app { display:grid; grid-template-columns: 150px 1fr; height:100%; }
+  #strip { background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:10px 8px; }
+  .thumb { position:relative; margin-bottom:10px; border:2px solid transparent; border-radius:6px; overflow:hidden; cursor:pointer; }
+  .thumb.active { border-color: var(--accent); }
+  .thumb img { display:block; width:100%; }
+  .thumb span { position:absolute; right:5px; bottom:2px; font-size:10px; color:var(--muted); text-shadow:0 1px 2px #000; }
+  #main { position:relative; display:flex; align-items:center; justify-content:center; padding:24px; overflow:hidden; }
+  #stage { position:relative; width:min(100%, calc((100vh - 48px) * 16 / 9)); aspect-ratio:16/9;
+           transition: transform .45s cubic-bezier(.2,.8,.2,1); box-shadow: 0 10px 40px #0008; }
+  #stage img { position:absolute; inset:0; width:100%; height:100%; transition: opacity .35s ease; }
+  #sel { position:absolute; border:1.5px solid #0A84FF; display:none; pointer-events:none; transition: all .35s cubic-bezier(.2,.8,.2,1); }
+  #sel i { position:absolute; width:8px; height:8px; background:#fff; border:1.5px solid #0A84FF; border-radius:2px; }
+  #sel i:nth-child(1){left:-5px;top:-5px} #sel i:nth-child(2){right:-5px;top:-5px}
+  #sel i:nth-child(3){left:-5px;bottom:-5px} #sel i:nth-child(4){right:-5px;bottom:-5px}
+  #sel b { position:absolute; left:0; top:-22px; font:600 11px -apple-system, sans-serif; color:#111; background:var(--accent);
+           padding:2px 6px; border-radius:4px; white-space:nowrap; }
+  #status { position:absolute; right:14px; bottom:10px; color:var(--muted); font-size:11px; }
+  #empty { color:var(--muted); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="strip"></div>
+  <div id="main">
+    <div id="stage" data-hive-stage><div id="sel"><i></i><i></i><i></i><i></i><b></b></div></div>
+    <div id="empty">Waiting for the Deck agent…</div>
+    <div id="status"></div>
+  </div>
+</div>
+<script>
+(() => {
+  const strip = document.getElementById('strip'), stage = document.getElementById('stage'),
+        sel = document.getElementById('sel'), status = document.getElementById('status'),
+        empty = document.getElementById('empty');
+  let base = '/render', n = 0, current = 0, version = 0;
+
+  const src = (i, v) => `${base}/slide-${i}.png?v=${v}`;
+
+  function buildStrip() {
+    strip.innerHTML = '';
+    for (let i = 0; i < n; i++) {
+      const d = document.createElement('div');
+      d.className = 'thumb' + (i === current ? ' active' : '');
+      d.innerHTML = `<img src="${src(i, version)}"><span>${i + 1}</span>`;
+      d.onclick = () => show(i, false);
+      strip.appendChild(d);
+    }
+  }
+
+  function show(i, zoom) {
+    current = i;
+    [...strip.children].forEach((t, k) => t.classList.toggle('active', k === i));
+    strip.children[i]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    swapImage(src(i, version));
+    stage.style.transform = zoom ? 'scale(1.06)' : 'scale(1)';
+  }
+
+  function swapImage(url) {
+    const old = stage.querySelector('img');
+    const img = new Image();
+    img.style.opacity = 0;
+    img.onload = () => { stage.insertBefore(img, sel); requestAnimationFrame(() => img.style.opacity = 1);
+                         if (old) setTimeout(() => old.remove(), 380); };
+    img.src = url;
+    empty.style.display = 'none';
+  }
+
+  function focus(slide, box, label) {
+    if (slide !== current) show(slide, true); else stage.style.transform = 'scale(1.06)';
+    const [x, y, w, h] = box;
+    Object.assign(sel.style, { display: 'block', left: x * 100 + '%', top: y * 100 + '%',
+                               width: w * 100 + '%', height: h * 100 + '%' });
+    sel.querySelector('b').textContent = '🟡 Deck · ' + (label || 'editing');
+  }
+
+  function connect() {
+    const ws = new WebSocket('ws://127.0.0.1:8765');
+    ws.onmessage = (m) => {
+      const e = JSON.parse(m.data), d = e.data || {};
+      if (e.type === 'deck_loaded') { base = d.base || base; n = d.slides; version = d.version; buildStrip(); show(0, false); }
+      if (e.type === 'deck_focus') focus(d.slide, d.box, d.label);
+      if (e.type === 'deck_slide_updated') {
+        version = d.version;
+        const t = strip.children[d.slide]?.querySelector('img'); if (t) t.src = src(d.slide, version);
+        if (d.slide === current) swapImage(src(d.slide, version));
+        status.textContent = `rendered in ${d.render_ms} ms`;
+      }
+      if (e.type === 'agent_done' && e.agent === 'deck') { sel.style.display = 'none'; stage.style.transform = 'scale(1)'; }
+    };
+    ws.onclose = () => setTimeout(connect, 1000);
+  }
+  connect();
+})();
+</script>
+</body>
+</html>

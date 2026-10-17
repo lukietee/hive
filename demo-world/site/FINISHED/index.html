@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Whisk: matcha, delivered to your dorm</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- FINISHED target state: rehearsal reference + backup if the live run breaks. -->
+  <header class="nav">
+    <a href="#hero" class="brand"><img id="logo" class="logo" src="logo.svg" alt="Whisk logo"><span>Whisk</span></a>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#waitlist">Join</a>
+    </nav>
+  </header>
+
+  <section class="hero" id="hero">
+    <h1 class="hero-title">Matcha, delivered to your dorm.</h1>
+    <p class="hero-sub">Ceremonial-grade matcha, shipped weekly and timed to your class schedule. Students save $10 a month.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
+      <a class="btn btn-ghost" href="#how">See how it works</a>
+    </div>
+  </section>
+
+  <section class="how" id="how">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step"><span>1</span><h3>Pick your vibe</h3><p>Ceremonial, latte-grade, or flavored. Change anytime.</p></div>
+      <div class="step"><span>2</span><h3>We ship weekly</h3><p>Fresh tins to your dorm or apartment, timed to your class schedule.</p></div>
+      <div class="step"><span>3</span><h3>Share &amp; sip free</h3><p>Every friend you refer earns you 5 free credits.</p></div>
+    </div>
+  </section>
+
+  <section class="pricing" id="pricing">
+    <h2>Pricing</h2>
+    <div class="plans">
+      <div class="plan">
+        <h3>Standard</h3>
+        <p class="price">$29<span>/mo</span></p>
+        <ul><li>4 tins a month</li><li>Free shipping</li><li>Pause anytime</li></ul>
+      </div>
+      <div class="plan plan-featured">
+        <h3>Student</h3>
+        <p class="price">$19<span>/mo</span></p>
+        <ul><li>Everything in Standard</li><li>.edu email required</li><li>Finals-week bonus tin</li></ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="waitlist" id="waitlist">
+    <h2>Be first in line</h2>
+    <form id="waitlist-form">
+      <input id="waitlist-email" type="email" placeholder="you@school.edu" required>
+      <button type="submit">Join the waitlist</button>
+    </form>
+    <p id="waitlist-status" class="status"></p>
+  </section>
+
+  <footer class="footer">© Whisk · finished by a swarm, 5 minutes before the pitch</footer>
+
+  <script>
+    // Waitlist: POSTs to Supabase if configured, otherwise stores locally (offline-safe for the demo).
+    // Configure before deploying:
+    //   window.WAITLIST = { url: "https://<project>.supabase.co/rest/v1/waitlist", anonKey: "<anon key>" }
+    const form = document.getElementById("waitlist-form");
+    const statusEl = document.getElementById("waitlist-status");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("waitlist-email").value.trim();
+      if (!email) return;
+      try {
+        const cfg = window.WAITLIST;
+        if (cfg && cfg.url) {
+          const res = await fetch(cfg.url, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              apikey: cfg.anonKey,
+              authorization: `Bearer ${cfg.anonKey}`,
+              prefer: "return=minimal",
+            },
+            body: JSON.stringify({ email }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        } else {
+          let list = [];
+          try { list = JSON.parse(localStorage.getItem("whisk-waitlist") || "[]"); } catch (_) {}
+          list.push(email);
+          try { localStorage.setItem("whisk-waitlist", JSON.stringify(list)); } catch (_) {}
+        }
+        statusEl.textContent = "You're on the list 🍵";
+        form.reset();
+      } catch (err) {
+        statusEl.textContent = "Something went wrong. Try again?";
+      }
+    });
+  </script>
+</body>
+</html>

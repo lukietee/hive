@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Whisk</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- STATUS: half-done. Pitch is in 5 minutes. -->
+  <header class="nav">
+    <!-- TODO(web): logo.png doesn't exist yet. Design is making it. -->
+    <img id="logo" class="logo" src="logo.png" alt="Whisk logo">
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#waitlist">Join</a>
+    </nav>
+  </header>
+
+  <!-- TODO(web): hero is broken: headline overflows off the screen on laptops, buttons are misaligned -->
+  <section class="hero" id="hero">
+    <h1 class="hero-title">Matcha, delivered to your dorm, every single week, ceremonial grade, no subscription guilt</h1>
+    <p class="hero-sub">lorem ipsum: write the subtitle</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
+      <a class="btn btn-ghost broken-offset" href="#how">See how it works</a>
+    </div>
+  </section>
+
+  <section class="how" id="how">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step"><span>1</span><h3>Pick your vibe</h3><p>Ceremonial, latte-grade, or flavored. Change anytime.</p></div>
+      <div class="step"><span>2</span><h3>We ship weekly</h3><p>Fresh tins to your dorm or apartment, timed to your class schedule.</p></div>
+      <div class="step"><span>3</span><h3>Share &amp; sip free</h3><p>Every friend you refer earns you 5 free credits.</p></div>
+    </div>
+  </section>
+
+  <section class="pricing" id="pricing">
+    <h2>Pricing</h2>
+    <!-- TODO(web): pricing. Old number from the Notion doc was $39/mo, but double-check against the deck -->
+    <p class="todo">TODO: pricing</p>
+  </section>
+
+  <section class="waitlist" id="waitlist">
+    <h2>Be first in line</h2>
+    <!-- TODO(web): form isn't wired to anything yet (Supabase table: waitlist) -->
+    <form id="waitlist-form">
+      <input type="email" placeholder="you@school.edu">
+      <button type="button">Join (TODO)</button>
+    </form>
+  </section>
+
+  <footer class="footer">© Whisk · built in 5 minutes, apparently</footer>
+</body>
+</html>

@@ -1,0 +1,52 @@
+:root {
+  --matcha: #8DBF5A;
+  --matcha-deep: #2F5D3A;
+  --cream: #F6F1E7;
+  --ink: #17201A;
+  --muted: #5E6B61;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background: var(--cream);
+  color: var(--ink);
+}
+.nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 40px;
+}
+.logo { height: 40px; }
+.nav a { margin-left: 24px; color: var(--ink); text-decoration: none; font-weight: 500; }
+
+/* BROKEN: the headline never wraps and runs off the right edge */
+.hero { padding: 80px 40px; }
+.hero-title {
+  font-size: 96px;
+  white-space: nowrap;
+  letter-spacing: -2px;
+  margin: 0 0 16px;
+}
+.hero-sub { color: var(--muted); font-size: 20px; }
+.hero-ctas { margin-top: 28px; }
+.btn { display: inline-block; padding: 14px 22px; border-radius: 999px; font-weight: 600; text-decoration: none; }
+.btn-primary { background: var(--matcha-deep); color: white; }
+.btn-ghost { border: 2px solid var(--matcha-deep); color: var(--matcha-deep); }
+/* BROKEN: someone nudged this button and it ended up off to the side */
+.broken-offset { position: relative; top: 46px; left: 180px; }
+
+.how, .pricing, .waitlist { padding: 64px 40px; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.step { background: white; border-radius: 18px; padding: 24px; }
+.step span {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--matcha); color: white; font-weight: 700;
+}
+.todo {
+  border: 2px dashed #d44; color: #d44; padding: 24px; border-radius: 12px;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.waitlist form { display: flex; gap: 12px; }
+.waitlist input { flex: 1; max-width: 360px; padding: 14px; border-radius: 12px; border: 1px solid #ccc; font-size: 16px; }
+.waitlist button { padding: 14px 22px; border-radius: 12px; border: 0; background: #bbb; color: white; font-weight: 600; }
+.footer { padding: 40px; color: var(--muted); font-size: 14px; }

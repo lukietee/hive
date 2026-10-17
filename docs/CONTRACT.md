@@ -1,0 +1,67 @@
+# Hive — Engine ⇄ App Contract
+
+This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat or streaming clients. **Change it here first**, then update both sides.
+
+## Transport
+- The engine runs a WebSocket server at **`ws://127.0.0.1:8765`**.
+- Clients (the Mac app, a debug page, later the relay) connect and receive every event as one **JSON object per message**.
+- Clients can also send **commands** (below) to the engine over the same socket.
+
+## Coordinates
+- Every `x`, `y`, `w`, `h` is in **macOS global screen points**:
+  - the origin is the **top-left** of the main display;
+  - y grows downward (the same space as `CGEvent` and the Accessibility API).
+- The Mac app converts these to AppKit's bottom-left coordinates itself.
+
+## Agents
+| id | name | color (hex) | emoji |
+|---|---|---|---|
+| `builder` | Builder | `#34C759` | 🟢 |
+| `fixer` | Fixer | `#FF3B30` | 🔴 |
+| `web` | Web | `#0A84FF` | 🔵 |
+| `deck` | Deck | `#FFCC00` | 🟡 |
+| `social` | Social | `#AF52DE` | 🟣 |
+| `checker` | Checker | `#E5E5EA` | ⚪ |
+| `design` | Design | `#FF9F0A` | 🎨 |
+| `treasurer` | Treasurer | `#30D158` | 💰 |
+| `guests` | Guests | `#FF375F` | 💌 |
+| `cake` | Cake | `#FFD60A` | 🎂 |
+| `food` | Food | `#FF6B35` | 🍕 |
+
+## Event envelope (engine → clients)
+```json
+{ "v": 1, "ts": 1792260000.123, "agent": "web", "type": "moving_to", "data": { ... } }
+```
+
+| type | data | Mac app behavior |
+|---|---|---|
+| `agent_spawn` | `{ "name", "color", "emoji", "x", "y" }` | Create the cursor at (x,y), or under the notch if omitted; add a pill to the notch |
+| `agent_status` | `{ "text", "progress": 0..1? }` | Update the pill text / progress ring |
+| `moving_to` | `{ "x", "y", "duration_ms": 300, "label"? }` | Glide the cursor to (x,y) with easing |
+| `click` | `{ "x", "y" }` | Click ripple at (x,y) |
+| `typing` | `{ "x", "y", "text" }` | Show a small typing indicator by the cursor |
+| `highlight` | `{ "x", "y", "w", "h", "style": "circle" \| "box" \| "select" }` | Draw a circle, box or selection handles (fade out after 2.5s unless `"sticky": true`) |
+| `link` | `{ "from": [x,y], "to": [x,y], "text"? }` | Draw a line between two points (Checker conflicts) |
+| `needs_human` | `{ "question", "options": [..] }` | Pulse the cursor; show the question in the notch |
+| `chat` | `{ "text" }` | (For the chat relay; the app may show it in the notch) |
+| `agent_done` | `{ "summary"? }` | Cursor flies back into the notch and disappears |
+| `swarm_summary` | `{ "title", "lines": [..] }` | Show the summary card in the notch |
+| `countdown` | `{ "seconds_left" }` | Update the notch timer |
+| `budget` | `{ "spent", "total", "caps": { agent: cap } }` | Update the notch budget bar (party demo) |
+| `deck_loaded` | `{ "slides", "base", "version" }` | Deck Viewer loads the slide PNGs from `base` (e.g. `http://127.0.0.1:8766/...`) |
+| `deck_focus` | `{ "slide", "box": [x, y, w, h], "label" }` | Deck Viewer scrolls to and zooms the slide; box is in **fractions of the slide** (0–1), for the cursor + selection handles |
+| `deck_slide_updated` | `{ "slide", "version", "render_ms" }` | Deck Viewer crossfades to the re-rendered slide PNG |
+
+## Commands (clients → engine)
+```json
+{ "v": 1, "cmd": "start", "args": { "scenario": "pitch_in_5" } }
+```
+| cmd | args |
+|---|---|
+| `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim" }` |
+| `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
+| `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
+| `answer` | `{ "agent": id, "choice" }`: the reply to `needs_human` |
+
+## Sync rule
+Before a real action, an agent emits `moving_to`, waits `duration_ms`, emits `click` (or `typing`), **then** performs the action. The cursor always arrives before the app reacts.
