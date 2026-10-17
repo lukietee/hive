@@ -24,6 +24,7 @@ final class HiveStore: ObservableObject {
     /// Where notch/menu commands go: the engine socket, or the simulator log.
     var onCommand: ((String, [String: Any]) -> Void)?
     let deck = DeckViewerModel()
+    let call = CallModel()
 
     private var typingTokens: [String: Int] = [:]
     private var chatToken = 0
@@ -63,6 +64,7 @@ final class HiveStore: ObservableObject {
             allPaused = false
         }
         deck.reset()
+        call.reset()
     }
 
     // MARK: - Event handling
@@ -105,6 +107,7 @@ final class HiveStore: ObservableObject {
                 budget = Budget(spent: num(d["spent"]) ?? 0, total: num(d["total"]) ?? 0, caps: caps)
             }
         case "deck_loaded", "deck_focus", "deck_slide_updated": deck.handle(type, d)
+        case "call_started", "call_state", "call_transcript", "call_ended": call.handle(type, agent: agentId, d)
         default:
             break
         }

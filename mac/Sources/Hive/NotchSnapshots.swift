@@ -63,6 +63,7 @@ enum NotchSnapshots {
             try? png?.write(to: url)
             print("snapshot \(url.path)")
         }
+        CallSnapshots.render(to: dir)
     }
 
     private static func populate(_ s: HiveStore) {
