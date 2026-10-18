@@ -20,7 +20,7 @@ swift build
 
 ## Notch controls
 The panel is click-through everywhere except over the black shape you can see, so the menu bar and apps underneath keep working.
-- **Hover the notch** while idle → it peeks open with **▶ Pitch in 5** (sends `start {scenario: "pitch_in_5"}`). **⌥-click** starts `demo_sim` instead.
+- **Hover the notch** while idle → it peeks open with the status and the **"Ask Hive to…"** task box (sends `start {scenario: "goal", goal}`). Saved demos are in the menu bar under **Demos ▸**.
 - **Click an agent pill** → `pause {agent}` / `resume {agent}` (paused pills dim with a dashed border).
 - **⏸ in the header** → `pause {}` / `resume {}` for all agents.
 - **"Ask Hive to…" box** (in the peek, below Start) → type a goal, Return sends `start {scenario: "goal", goal}`; Esc or ✕ cancels.
