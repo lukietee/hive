@@ -174,6 +174,32 @@ _STYLES = ["flat vector illustration with bold shapes and a limited palette",
            "risograph-style print illustration with grainy texture"]
 
 
+async def gemini_image(prompt: str, aspect: str = "1:1", timeout: float = 30.0):
+    """One image from Gemini (PIL.Image, RGB) or None if there's no key or it fails."""
+    import base64
+    import io
+
+    import httpx
+    from PIL import Image
+
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        return None
+    body = {"contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": aspect}}}
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.post(url, params={"key": key}, json=body)
+        r.raise_for_status()
+        parts = r.json()["candidates"][0]["content"]["parts"]
+        data = next(p["inlineData"]["data"] for p in parts if "inlineData" in p)
+        return Image.open(io.BytesIO(base64.b64decode(data))).convert("RGB")
+    except Exception as exc:
+        log.warning("gemini image failed (%s)", exc)
+        return None
+
+
 async def gemini_square(out: Path, price: str = "$29", headline: str = "Matcha, delivered to your dorm.",
                         timeout: float = 30.0) -> Path | None:
     """A new 1080x1080 launch image every run: Gemini draws a cartoon/animated scene (no text), then the brand text is
@@ -185,27 +211,15 @@ async def gemini_square(out: Path, price: str = "$29", headline: str = "Matcha, 
     import httpx
     from PIL import Image
 
-    key = os.environ.get("GEMINI_API_KEY")
-    if not key:
-        return None
     scene, style = random.choice(_SCENES), random.choice(_STYLES)
     prompt = (f"A {style} of {scene}. It must look clearly illustrated or animated, like a cartoon or "
               "an animation frame: NOT a photograph, not photorealistic, no realistic people or skin. "
               "Fresh green matcha is the hero, cheerful and on-brand. Square composition with calm "
               "empty space in the bottom third. Absolutely no text, letters, logos or watermarks.")
-    body = {"contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": "1:1"}}}
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent"
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as c:
-            r = await c.post(url, params={"key": key}, json=body)
-        r.raise_for_status()
-        parts = r.json()["candidates"][0]["content"]["parts"]
-        data = next(p["inlineData"]["data"] for p in parts if "inlineData" in p)
-        img = Image.open(io.BytesIO(base64.b64decode(data))).convert("RGB").resize((1080, 1080))
-    except Exception as exc:
-        log.warning("gemini image failed (%s); using the drawn square", exc)
+    img = await gemini_image(prompt, "1:1", timeout)
+    if img is None:
         return None
+    img = img.resize((1080, 1080))
     _brand_band(img, price, headline)
     out.parent.mkdir(parents=True, exist_ok=True)
     img.save(out, "PNG")
