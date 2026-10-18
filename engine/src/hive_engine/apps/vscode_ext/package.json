@@ -1,0 +1,17 @@
+{
+  "name": "hive-bridge",
+  "displayName": "Hive bridge",
+  "description": "Lets the Hive engine drive this VS Code window (open, reveal, select, type, terminal) over localhost.",
+  "version": "0.1.0",
+  "publisher": "hive",
+  "engines": { "vscode": "^1.80.0" },
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "properties": {
+        "hive.port": { "type": "number", "default": 8774, "description": "Port the Hive bridge listens on (127.0.0.1)." }
+      }
+    }
+  }
+}
