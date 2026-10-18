@@ -111,6 +111,12 @@ async def check_page(page: Page) -> None:
         if await page.locator("input[name='username']").count() and \
                 await page.locator("input[name='password']").count():
             raise InstagramError("Instagram is showing its login form (log in by hand first)")
+        # Logged-out home: no nav (Home / New post), just "Log in" / "Sign up" links.
+        logged_in = await page.locator("svg[aria-label='Home'], svg[aria-label='New post']").count()
+        login_cta = await page.get_by_role("link", name=re.compile(r"^(log in|sign up)$", re.I)).count() + \
+            await page.get_by_role("button", name=re.compile(r"^(log in|sign up)$", re.I)).count()
+        if not logged_in and login_cta:
+            raise InstagramError("not logged into Instagram in the HiveAgentsChrome profile (log in by hand first)")
         body = await page.evaluate("() => (document.body && document.body.innerText || '').slice(0, 4000)")
     except InstagramError:
         raise
