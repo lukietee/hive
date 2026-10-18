@@ -98,6 +98,7 @@ class Messenger:
                     self.ws = ws
                     self._connected_at = time.time()
                     log.info("connected to bus %s", self.bus_url)
+                    self._forget_run()  # whatever was running before the (re)connect is gone or replayed
                     async for raw in ws:
                         if isinstance(raw, bytes):
                             continue
@@ -243,6 +244,9 @@ class Messenger:
                                          [str(m) for m in d.get("members") or []
                                           if isinstance(m, str) and re.fullmatch(r"\+\d{8,15}", m.strip())])
             return
+        if typ == "run_reset":
+            self._forget_run()
+            return
         if typ == "agent_spawn" and agent:
             self.names[agent] = strip_emoji(str(d.get("name") or self.name_of(agent)))
             self.active.add(agent)
@@ -293,6 +297,7 @@ class Messenger:
                 await self.t.send_image(q.image)
             await self._send(format_question(q), agent)
         elif typ == "swarm_summary":
+            self._forget_run()
             await self.flush()
             lines = [brief(x, 70) for x in d.get("lines") or []]
             body = "\n".join(f"• {x}" for x in lines[:6] if x)
@@ -373,6 +378,12 @@ class Messenger:
                 await self.say_as("Hive", tagged("ok", "Passed to the team"))
             else:
                 await self._route_new_task(text)
+
+    def _forget_run(self) -> None:
+        """The run is over (summary, CANCEL, new run, engine restart): no agent is busy any more, so the
+        next text starts a new task instead of being passed to a team that no longer exists."""
+        self.active.clear()
+        self.questions.clear()
 
     async def _route_new_task(self, text: str) -> None:
         """Nothing is running: Claude reads the text and decides what it is (intent.py)."""
