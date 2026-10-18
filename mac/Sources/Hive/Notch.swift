@@ -392,28 +392,12 @@ struct NotchView: View {
                     Circle()
                         .fill(store.connected ? Color.green : Color.white.opacity(0.3))
                         .frame(width: 5, height: 5)
-                    Text(store.connected ? "Ready · Pitch in 5" : "Engine offline")
+                    Text(store.connected ? "Ready for a task" : "Engine offline")
                         .font(.system(size: 11))
                         .foregroundStyle(HiveStyle.secondary)
                 }
             }
             Spacer(minLength: 8)
-            Button {
-                // ⌥-click starts the short test scenario instead of the real demo.
-                let alt = NSEvent.modifierFlags.contains(.option)
-                store.start(alt ? "demo_sim" : "pitch_in_5")
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
-                    Text("Start").font(.system(size: 12, weight: .semibold))
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 28)
-                .background(Capsule().fill(Color.white))
-                .foregroundStyle(Color.black)
-            }
-            .buttonStyle(PressableStyle())
-            .help("Start Pitch in 5 (⌥-click: demo_sim)")
         }
         .frame(height: NotchMetrics.peekRow)
     }

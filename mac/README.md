@@ -14,7 +14,7 @@ swift build
 ```
 
 - **Quit:** hexagon menu-bar item → Quit Hive, or Ctrl-C in the terminal.
-- **The hexagon menu also has:** New Goal… (⌘N, opens the notch with the goal box focused), Start Pitch in 5, Start demo_sim, Pause/Resume All Agents, Run / Stop Simulation (no engine) and Reconnect to Engine.
+- **The hexagon menu also has:** New Goal… (⌘N, opens the notch with the goal box focused), Demos ▸ (Pitch in 5, demo_sim), Pause/Resume All Agents, Run / Stop Simulation (no engine) and Reconnect to Engine.
 - **Permissions:** none are needed. The overlay only draws; it never clicks.
 - **Other engine:** `HIVE_ENGINE_URL=ws://host:port ./.build/debug/Hive`.
 

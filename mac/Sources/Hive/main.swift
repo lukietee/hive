@@ -149,8 +149,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         menu.addItem(makeItem("New Goal…", #selector(newGoal), key: "n"))
-        menu.addItem(makeItem("Start Pitch in 5", #selector(startPitch), key: "p"))
-        menu.addItem(makeItem("Start demo_sim", #selector(startDemoSim), key: "d"))
+        // Saved demo runs live in a submenu; the notch itself only takes free-form tasks.
+        let demos = NSMenu()
+        demos.addItem(makeItem("Pitch in 5", #selector(startPitch), key: "p"))
+        demos.addItem(makeItem("demo_sim (test)", #selector(startDemoSim), key: "d"))
+        let demosItem = NSMenuItem(title: "Demos", action: nil, keyEquivalent: "")
+        demosItem.submenu = demos
+        menu.addItem(demosItem)
         let pause = makeItem("Pause All Agents", #selector(togglePauseAll), key: "")
         menu.addItem(pause)
         pauseItem = pause
