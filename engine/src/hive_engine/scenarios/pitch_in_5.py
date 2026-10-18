@@ -24,6 +24,7 @@ Human moments (both time out so the scripted demo never hangs):
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import os
 import re
@@ -50,6 +51,8 @@ from ..apps.vscode import VSCode
 from .pitch_world import (WORLD_URL, edit, find_line, image_size, make_workspace, market_chart, run_node_tests,
                           section, start_world_server, svg_to_png)
 
+log = logging.getLogger("hive.pitch")
+
 VIEWER_URL = f"http://127.0.0.1:{HTTP_PORT}/viewer/index.html"
 REQUEST = ("Our pitch starts in 5 minutes and nothing is finished. Fix the product's failing test and finish "
            "signup, fix the landing page, fill the blank deck slides, and write the launch post.")
@@ -65,6 +68,7 @@ CLICK_RECORDER = ("window.__clicks = []; document.addEventListener('mousedown', 
 # ---- shared state between agents -----------------------------------------------------------------
 @dataclass
 class Handoffs:
+    vs: Any = None            # the shared real VS Code window (Fixer + Web type into it)
     logo_png: Path | None = None
     tests_png: Path | None = None
     site_png: Path | None = None
@@ -421,6 +425,10 @@ async def fixer_flow(f: EditorAgent, ws: Path, h: Handoffs, opts: Opts, out: dic
     f.done(f"{r['pass']}/{r['tests']} tests passing")
 
 
+VERCEL_PROJECT = os.environ.get("HIVE_VERCEL_PROJECT", "whisk-demo")
+
+
+# ---- 🔵 Web ----------------------------------------------------------------------------------------
 async def deploy_live(w: TrackedBrowserAgent, site: Path, h: Handoffs, out: dict, expect: str | None = None,
                       first: bool = True) -> str | None:
     """Ships the site to Vercel for real; returns the public URL, or None (stay on the local server)."""
@@ -435,6 +443,19 @@ async def deploy_live(w: TrackedBrowserAgent, site: Path, h: Handoffs, out: dict
         return None
     out["live_url"] = r.url
     return r.url
+
+
+async def code_edit(agent: Agent, h: "Handoffs", path: Path, old: str, new: str,
+                    label: str | None = None) -> list[int]:
+    """A site edit typed visibly into the shared VS Code window by `agent` (its ghost cursor leaves
+    its own window to do it), or written straight to disk when there's no VS Code."""
+    if h.vs is not None:
+        try:
+            return await h.vs.type_edit(agent, path, old, new, label or path.name,
+                                        glide_ms=getattr(agent, "glide_ms", 450), max_type_s=1.6)
+        except Exception as exc:  # never let the editor block the demo: fall back to a direct write
+            log.warning("VS Code edit failed (%s); writing %s directly", exc, path.name)
+    return edit(path, old, new)
 
 
 async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, out: dict | None = None) -> None:
@@ -458,15 +479,15 @@ async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, ou
     w.chat("The hero headline runs off the screen. Fixing the layout and the copy.")
     await asyncio.sleep(0.6 * pace)
     await w.typing(*w.pos, "Matcha, delivered to your dorm.", 200)  # type: ignore[misc]
-    edit(css, "/* BROKEN: the headline never wraps and runs off the right edge */\n"
+    await code_edit(w, h, css, "/* BROKEN: the headline never wraps and runs off the right edge */\n"
               ".hero { padding: 80px 40px; }\n.hero-title {\n  font-size: 96px;\n  white-space: nowrap;\n",
          fin_rule(".hero {") + "\n.hero-title {\n  font-size: clamp(44px, 7vw, 88px);\n  line-height: 1.02;\n")
-    edit(css, ".hero-sub { color: var(--muted); font-size: 20px; }\n.hero-ctas { margin-top: 28px; }",
+    await code_edit(w, h, css, ".hero-sub { color: var(--muted); font-size: 20px; }\n.hero-ctas { margin-top: 28px; }",
          fin_rule(".hero-sub") + "\n" + fin_rule(".hero-ctas"))
-    edit(css, ".steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }", fin_rule(".steps"))
+    await code_edit(w, h, css, ".steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }", fin_rule(".steps"))
     old_hero = section(html.read_text(), "hero")
     new_hero = section(fin, "hero").replace('class="btn btn-ghost"', 'class="btn btn-ghost broken-offset"')
-    edit(html, "  <!-- TODO(web): hero is broken: headline overflows off the screen on laptops, buttons are misaligned -->\n"
+    await code_edit(w, h, html, "  <!-- TODO(web): hero is broken: headline overflows off the screen on laptops, buttons are misaligned -->\n"
                + "  " + old_hero, "  " + new_hero)
     await reload()
     await w.point_at(p.locator(".hero-title"), style="select", label="headline fixed")
@@ -476,9 +497,9 @@ async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, ou
     # 2. the knocked-off button
     await w.point_at(p.locator(".broken-offset"), style="box", label="misaligned button")
     await asyncio.sleep(0.4 * pace)
-    edit(css, "/* BROKEN: someone nudged this button and it ended up off to the side */\n"
+    await code_edit(w, h, css, "/* BROKEN: someone nudged this button and it ended up off to the side */\n"
               ".broken-offset { position: relative; top: 46px; left: 180px; }\n", "")
-    edit(html, ' broken-offset"', '"')
+    await code_edit(w, h, html, ' broken-offset"', '"')
     await reload()
     await w.click(p.locator(".hero-ctas .btn-ghost"), "See how it works")
     w.status("Buttons re-aligned", 0.3)
@@ -488,8 +509,8 @@ async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, ou
     # 3. logo (Design's iPad logo isn't in this scenario; Web uses the brand mark from the finished kit)
     shutil.copy(site / "FINISHED" / "logo.svg", site / "logo.svg")
     old_header = section(html.read_text(), "header")
-    edit(html, old_header, section(fin, "header"))
-    edit(css, ".logo { height: 40px; }\n.nav a { margin-left: 24px; color: var(--ink); text-decoration: none; font-weight: 500; }",
+    await code_edit(w, h, html, old_header, section(fin, "header"))
+    await code_edit(w, h, css, ".logo { height: 40px; }\n.nav a { margin-left: 24px; color: var(--ink); text-decoration: none; font-weight: 500; }",
          fin_rule(".brand") + "\n" + fin_rule(".logo") + "\n" + fin_rule(".nav nav a"))
     await reload()
     await w.point_at(p.locator("#logo"), style="circle", label="logo in")
@@ -504,9 +525,9 @@ async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, ou
     await asyncio.sleep(0.5 * pace)
     await w.typing(*w.pos, "Standard $39/mo · Student $19/mo", 200)  # type: ignore[misc]
     pricing = section(fin, "pricing").replace("$29<span>", "$39<span>")
-    edit(html, section(html.read_text(), "pricing"), pricing)
+    await code_edit(w, h, html, section(html.read_text(), "pricing"), pricing)
     plans_css = "\n".join(l for l in fin_css.splitlines() if l.startswith((".plans", ".plan", ".price")))
-    edit(css, ".todo {\n  border: 2px dashed #d44; color: #d44; padding: 24px; border-radius: 12px;\n"
+    await code_edit(w, h, css, ".todo {\n  border: 2px dashed #d44; color: #d44; padding: 24px; border-radius: 12px;\n"
               "  font-family: ui-monospace, Menlo, monospace;\n}", plans_css)
     await reload()
     await p.locator("#pricing").scroll_into_view_if_needed()
@@ -519,12 +540,12 @@ async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, ou
     await w.point_at(p.locator("#waitlist-form"), style="box", label="form not wired")
     old_wait = section(html.read_text(), "waitlist")
     script = re.search(r"\s*<script>.*?</script>", fin, re.S).group(0)  # type: ignore[union-attr]
-    edit(html, old_wait, section(fin, "waitlist"))
-    edit(html, section(html.read_text(), "footer"), section(fin, "footer") + script)
+    await code_edit(w, h, html, old_wait, section(fin, "waitlist"))
+    await code_edit(w, h, html, section(html.read_text(), "footer"), section(fin, "footer") + script)
     for sel in (".waitlist form", ".waitlist input", ".waitlist button"):
         old = next(l for l in css.read_text().splitlines() if l.startswith(sel))
-        edit(css, old, fin_rule(sel))
-    edit(css, fin_rule(".waitlist button"), fin_rule(".waitlist button") + "\n" + fin_rule(".status"))
+        await code_edit(w, h, css, old, fin_rule(sel))
+    await code_edit(w, h, css, fin_rule(".waitlist button"), fin_rule(".waitlist button") + "\n" + fin_rule(".status"))
     await reload()
     await p.locator("#waitlist").scroll_into_view_if_needed()
     await w.type(p.locator("#waitlist-email"), "first@ucla.edu", delay_ms=opts.type_delay * 2)
@@ -571,7 +592,7 @@ async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, ou
         await w.click(p.locator('nav a[href="#pricing"]'), "Pricing")
         await w.point_at(p.locator(".plan .price").first, style="box", label=f"$39 → {h.price}")
         await w.typing(*w.pos, h.price + "/mo", 200)  # type: ignore[misc]
-        edit(html, "$39<span>", f"{h.price}<span>")
+        await code_edit(w, h, html, "$39<span>", f"{h.price}<span>")
         await reload()
         await p.locator("#pricing").scroll_into_view_if_needed()
         await w.point_at(p.locator(".plan .price").first, style="select", label=f"{h.price}/mo ✓")
@@ -800,6 +821,7 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
             vs = VSCode()
             await vs.open(ws, cell(0, 0))
             fixer = EditorAgent(bus, "fixer", vs, opts.dwell, opts.glide_ms)
+            h.vs = vs
             web, social = (TrackedBrowserAgent(bus, a, opts.dwell, opts.glide_ms) for a in ("web", "social"))
             await web.open(browser, cell(1, 0), f"{WORLD_URL}/site/index.html")
             await social.open(browser, cell(1, 1), f"{WORLD_URL}/hive/composer.html")
