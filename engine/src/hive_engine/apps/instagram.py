@@ -165,13 +165,18 @@ _SCENES = [
     "matcha being whisked into foam, close-up, steam rising, minimalist Japanese ceramic",
     "a delivery box opened on a dorm bed revealing matcha tins and a whisk, playful and bright",
 ]
-_STYLES = ["editorial food photography", "soft pastel product photo", "bold modern ad photo",
-           "film-camera snapshot look", "clean minimalist studio shot"]
+# Illustration only: no photorealism (it reads as AI slop on a brand account).
+_STYLES = ["flat vector illustration with bold shapes and a limited palette",
+           "cute kawaii cartoon with thick outlines and soft pastel colors",
+           "Studio-Ghibli-inspired hand-painted animation still",
+           "retro 90s anime cel-shaded illustration",
+           "playful 3D clay / claymation render with soft shadows",
+           "risograph-style print illustration with grainy texture"]
 
 
 async def gemini_square(out: Path, price: str = "$29", headline: str = "Matcha, delivered to your dorm.",
                         timeout: float = 30.0) -> Path | None:
-    """A new 1080x1080 launch image every run: Gemini draws a photo (no text), then the brand text is
+    """A new 1080x1080 launch image every run: Gemini draws a cartoon/animated scene (no text), then the brand text is
     set on top with Pillow so it's always spelled right. Returns None if Gemini isn't available."""
     import base64
     import io
@@ -184,8 +189,10 @@ async def gemini_square(out: Path, price: str = "$29", headline: str = "Matcha, 
     if not key:
         return None
     scene, style = random.choice(_SCENES), random.choice(_STYLES)
-    prompt = (f"{style} of {scene}. Fresh green matcha is the hero. Square composition with calm empty "
-              "space in the bottom third. Absolutely no text, letters, logos or watermarks.")
+    prompt = (f"A {style} of {scene}. It must look clearly illustrated or animated, like a cartoon or "
+              "an animation frame: NOT a photograph, not photorealistic, no realistic people or skin. "
+              "Fresh green matcha is the hero, cheerful and on-brand. Square composition with calm "
+              "empty space in the bottom third. Absolutely no text, letters, logos or watermarks.")
     body = {"contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": "1:1"}}}
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent"
