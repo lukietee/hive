@@ -410,6 +410,27 @@ class InstagramSession:
         self.drafted = True
         return {"stage": "caption", "url": self.page.url}
 
+    async def recaption(self, caption: str) -> None:
+        """Replace the caption in the open post dialog (e.g. after "@Social make it shorter")."""
+        a, p = self.agent, self.page
+        box = await first_visible([
+            p.locator("div[aria-label^='Write a caption'][contenteditable='true']"),
+            p.locator("div[role='dialog'] div[contenteditable='true']"),
+        ], 6)
+        if not box:
+            raise InstagramError("couldn't find the caption box")
+        x, y = await a.screen_point_for(box)
+        await a.typing(x, y, caption[:60] + ("…" if len(caption) > 60 else ""))
+        await box.click()
+        await p.keyboard.press("Meta+A")
+        await p.keyboard.press("Backspace")
+        first, _, rest = caption.partition("\n")
+        await box.press_sequentially(first, delay=12)
+        if rest:
+            await p.keyboard.press("Shift+Enter")
+            await p.keyboard.insert_text(rest)
+        await asyncio.sleep(0.6)
+
     async def share(self) -> str | None:
         """Clicks Share (call ONLY after an explicit human YES); returns the post URL if found."""
         a, p = self.agent, self.page

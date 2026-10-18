@@ -7,7 +7,7 @@ Windows (2×2, real Chrome on a temp profile, all input over CDP — the OS mous
   ② top-right    🔵 Web     — the landing page: hero, button, logo, pricing ($39 from an old note), waitlist
   ③ bottom-left  🟡 Deck    — Deck Viewer (the Mac app's native one if it reports deck_viewer, else the
                               Chrome stopgap): fills slides 3/5/6/7/10 of pitch.pptx (+ logo on 1 and 3)
-  ④ bottom-right 🟣 Social  — post composer: drafts the launch post (no real posting)
+  ④ bottom-right 🟣 Social  — Instagram: writes and posts the launch post
   overlay        ⚪ Checker — compares site vs deck price, links them, asks the human ($29 by default)
 
 Handoffs (asyncio events): Fixer's test screenshot and Web's site screenshot → Deck slide 5;
@@ -728,58 +728,11 @@ async def checker_flow(c: Agent, web: TrackedBrowserAgent, d: PitchDeck, h: Hand
 
 # ---- 🟣 Social -------------------------------------------------------------------------------------
 async def social_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, out: dict) -> None:
-    p = s.page
-    assert p
-    s.status("Reading the rough draft", 0.05)
-    await s.point_at(p.locator("#post"), style="box", label="draft.md")
-    s.chat("The draft is one long run-on with no link and no price. Rewriting once Web has a URL.")
-    s.status("Waiting on the live URL and the price", 0.15)
-    await wait_for(h.url_ready, 120)
-    await wait_for(h.price_resolved, 120)
-    url, price = h.url or f"{WORLD_URL}/site/", h.price or "$29"
-
-    post, src = await content.launch_post(url, price)
-    out["post_copy"] = src
-    s.status("Writing the launch post", 0.4)
-    await s.type(p.locator("#post"), post, delay_ms=opts.type_delay)
-    await p.evaluate("u => hive.attach(u)", f"{WORLD_URL}/site/logo.svg")
-    n = await p.evaluate("() => hive.length()")
-    s.chat(f"First draft is {n} characters" + (" (over the 280 limit)." if n > 280 else "."))
-    out["post_first_len"] = n
-
-    if opts.auto_human:
-        async def redirect() -> None:
-            await asyncio.sleep(1.5)
-            await s.bus._command({"cmd": "say", "args": {"text": "@Social make it shorter"}})
-        asyncio.create_task(redirect())
-    try:
-        msg = await asyncio.wait_for(s.inbox.get(), opts.redirect_wait)
-    except asyncio.TimeoutError:
-        msg = None
-    if msg or n > 280:
-        request = msg["text"] if msg else "it's over 280 characters, trim it"
-        s.chat(f"Got it: “{request}”" if msg else "Trimming it to fit.")
-        out["redirect"] = request
-        short, _ = await content.shorten_post(post, url, request)
-        await p.evaluate("() => hive.clear()")
-        await s.type(p.locator("#post"), short, delay_ms=opts.type_delay)
-        post = short
-    await s.click(p.locator("#save"), "Save draft")
-    h.post = await p.evaluate("() => window.__saved")
-    (ws / "social" / "post.md").write_text((h.post or post) + "\n")
-    out["post"] = h.post
-    h.social_saved.set()
-    if os.environ.get("HIVE_INSTAGRAM", "1") == "0":
-        s.status(f"Post drafted ({len(h.post or '')} chars), waiting for your OK", 1.0)
-        s.done("Launch post drafted (not posted)")
-        return
-    await instagram_flow(s, ws, h, opts, out)
-
-
-async def instagram_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, out: dict) -> None:
-    """Real post on Instagram (agents' HiveAgentsChrome profile), only after an explicit human YES.
-    The composer window closes first so the Instagram window takes the same grid cell."""
-    from ..apps.instagram import InstagramError, InstagramSession, clean_caption, make_square, gemini_square
+    """Social works in Instagram from the start (agents' HiveAgentsChrome profile): it opens Instagram,
+    waits for the live URL and the final price, makes the launch graphic, writes the caption straight
+    into Instagram's post screen (edits it there on "@Social make it shorter"), then shares — only after
+    an explicit YES unless HIVE_INSTAGRAM_AUTOPOST=1."""
+    from ..apps.instagram import InstagramError, InstagramSession, clean_caption, gemini_square, make_square
 
     rect = None
     try:
@@ -787,31 +740,64 @@ async def instagram_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Op
         rect = Rect(b["left"], b["top"], b["width"], b["height"])
     except Exception:
         pass
-    caption = clean_caption(h.post or "")
-    # A different graphic every run (Gemini), falling back to the drawn square.
-    image = (await gemini_square(ws / "social" / "launch.png", price=h.price or "$29")
-             or make_square(ws / "social" / "launch.png", price=h.price or "$29"))
-    out["instagram"] = {"caption": caption, "image": str(image)}
-    await s.close()                      # the composer window; the Social cursor moves to Instagram
-    s.status("Opening Instagram", 0.5)
+    await s.close()  # the placeholder window; Instagram takes the same grid cell
+    out["instagram"] = {}
     ig = None
     try:
         async with async_playwright() as pw:
+            s.status("Opening Instagram", 0.05)
             ig = await InstagramSession.open(pw, s, rect)
+            s.chat("Instagram is open. Writing the launch post once Web has a live URL and the price is settled.")
+            s.status("Waiting on the live URL and the price", 0.15)
+            await wait_for(h.url_ready, 120)
+            await wait_for(h.price_resolved, 120)
+            url, price = h.url or f"{WORLD_URL}/site/", h.price or "$29"
+
+            post, src = await content.launch_post(url, price)
+            out["post_copy"] = src
+            s.status("Designing the launch graphic", 0.3)
+            # A different graphic every run (Gemini), falling back to the drawn square.
+            image = (await gemini_square(ws / "social" / "launch.png", price=price)
+                     or make_square(ws / "social" / "launch.png", price=price))
+            caption = clean_caption(post)
+            out["instagram"].update(caption=caption, image=str(image))
             await ig.draft(image, caption)
             out["instagram"]["stage"] = "caption"
+            out["post_first_len"] = len(caption)
+            s.chat(f"Caption's in ({len(caption)} characters).")
+
+            if opts.auto_human:
+                async def redirect() -> None:
+                    await asyncio.sleep(1.5)
+                    await s.bus._command({"cmd": "say", "args": {"text": "@Social make it shorter"}})
+                asyncio.create_task(redirect())
+            try:
+                msg = await asyncio.wait_for(s.inbox.get(), opts.redirect_wait)
+            except asyncio.TimeoutError:
+                msg = None
+            if msg:
+                request = msg["text"]
+                s.chat(f"Got it: “{request}”")
+                out["redirect"] = request
+                post, _ = await content.shorten_post(post, url, request)
+                caption = clean_caption(post)
+                await ig.recaption(caption)
+                out["instagram"]["caption"] = caption
+            h.post = caption
+            (ws / "social" / "post.md").write_text(caption + "\n")
+            out["post"] = caption
+            h.social_saved.set()
+
             autopost = os.environ.get("HIVE_INSTAGRAM_AUTOPOST", "") == "1"
-            if autopost:
-                # Opt-in (e.g. a private demo account): share without asking.
-                choice, approved = "post", True
+            if autopost:  # opt-in (e.g. a private demo account): share without asking
+                approved = True
             else:
                 s.chat("Instagram post is ready to share. Waiting for your OK.")
-            if opts.auto_human and not autopost:  # rehearsals never publish
-                async def auto() -> None:
-                    await asyncio.sleep(2.0)
-                    s.answer("Don't post")
-                asyncio.create_task(auto())
-            if not autopost:
+                if opts.auto_human:  # rehearsals never publish
+                    async def auto() -> None:
+                        await asyncio.sleep(2.0)
+                        s.answer("Don't post")
+                    asyncio.create_task(auto())
                 try:
                     choice = await s.ask_human("Post this to Instagram?", ["Post", "Don't post"],
                                                timeout=90, kind="post")
@@ -821,9 +807,9 @@ async def instagram_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Op
                             str(choice or "").strip().lower() in ("yes", "y", "post", "approve", "share"))
             out["instagram"]["approved"] = approved
             if approved:
-                url = await ig.share()
-                out["instagram_url"] = url
-                s.chat(f"Posted to Instagram: {url}" if url else "Posted to Instagram.")
+                url_posted = await ig.share()
+                out["instagram_url"] = url_posted
+                s.chat(f"Posted to Instagram: {url_posted}" if url_posted else "Posted to Instagram.")
                 s.status("Posted to Instagram", 1.0)
                 s.done("Launch post is live on Instagram")
             else:
@@ -836,8 +822,9 @@ async def instagram_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Op
     except InstagramError as exc:
         out["instagram"]["error"] = str(exc)
         s.chat(f"Couldn't post to Instagram: {exc}")
-        s.status("Post drafted, Instagram unavailable", 1.0)
-        s.done("Launch post drafted (not posted)")
+        s.status("Instagram unavailable", 1.0)
+        s.done("Launch post not posted")
+        h.social_saved.set()  # the Checker shouldn't wait on a post that won't come
         if ig:
             try:
                 await ig.close()
@@ -896,7 +883,7 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
             h.vs = vs
             web, social = (TrackedBrowserAgent(bus, a, opts.dwell, opts.glide_ms) for a in ("web", "social"))
             await web.open(browser, cell(1, 0), f"{WORLD_URL}/site/index.html")
-            await social.open(browser, cell(1, 1), f"{WORLD_URL}/hive/composer.html")
+            await social.open(browser, cell(1, 1), None)  # Social swaps this for Instagram right away
             out["layout_warnings"] = await check_bounds([web, social])
             vx, vy, vw, vh = await vs.frame()
             want = cell(0, 0)
