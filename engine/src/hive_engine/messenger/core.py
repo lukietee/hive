@@ -27,6 +27,7 @@ import websockets
 
 from .. import memory
 from ..agents import AGENTS, find_agent_by_name
+from . import intent
 from .fmt import ICON, brief, tagged, warn_or, _WARN as WARN_RE, Question, classify, format_question, parse_reply, prefix, question_from_event, strip_emoji
 
 log = logging.getLogger("hive.messenger")
@@ -365,15 +366,37 @@ class Messenger:
             elif self.active:
                 await self.command("say", text=text)
                 await self.say_as("Hive", tagged("ok", "Passed to the team"))
-            elif len(text) >= 8 and len(text.split()) >= 2:
-                # Anything else is a goal: the general orchestrator plans a team for it and opens a group.
-                # Texted goals stay read-only (web browsing, code/slides on temp copies): no calls, no texts
-                # to other people, no purchases. Real-world skills only run from the party scenario.
-                await self.say_as("Hive", tagged("ok", "On it. Starting a group for this"))
-                await self.command("start", scenario="goal", goal=text)
             else:
-                await self.say_as("Hive", 'Text me a goal (e.g. "find the 3 best boba shops near UCLA"), '
-                                          '"start" for Pitch in 5, or @ an agent.')
+                await self._route_new_task(text)
+
+    async def _route_new_task(self, text: str) -> None:
+        """Nothing is running: Claude reads the text and decides what it is (intent.py)."""
+        it = await intent.classify(text)
+        log.info("intent: %s (rehearsal=%s, %s)", it.kind, it.rehearsal, it.source)
+        if it.kind == "chat":
+            await self.say_as("Hive", it.reply or "Text me a task and I'll put a team on it.")
+            return
+        if it.kind == "pitch":
+            await self._start_run("pitch_in_5", SCENARIO_TITLES["pitch_in_5"])
+            return
+        party = os.environ.get("HIVE_PARTY_SCENARIO")  # a local party playbook, if this install has one
+        if it.kind == "party" and party:
+            args = ({"rehearsal": True} if it.rehearsal else {"real_call": True, "no_send": True})
+            await self._start_run(party, "Party", party_goal=text, **args)
+            return
+        # Anything else (or a party without a playbook): the general orchestrator plans a team for it.
+        # Texted goals stay read-only (web browsing, code/slides on temp copies): no calls, no texts
+        # to other people, no purchases.
+        await self.say_as("Hive", tagged("ok", "On it. Starting a group for this"))
+        await self.command("start", scenario="goal", goal=text)
+
+    async def _start_run(self, scenario: str, title: str, **args: Any) -> None:
+        if self._groups_on():
+            if self.session:
+                self.session["done"] = True
+            await self.start_session(title)
+        await self.command("start", scenario=scenario, **args)
+        await self.say_as("Hive", tagged("ok", f"On it: {title}"))
 
     async def _to_agent(self, agent: str, text: str) -> None:
         memory.append(agent, "text_in", text)
