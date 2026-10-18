@@ -22,15 +22,19 @@ And they can do a lot more: order food on DoorDash, shop on Amazon, post to Inst
 
 ## 0:45 It asks before it decides
 
-For critical decisions, like spending money or conflicting information, Hive never guesses. It texts you the options and waits for your call. Here, the Checker found two different prices, so I just reply "1". Then Social designs a launch graphic and posts it to Instagram.
+For critical decisions, like spending money or conflicting information, Hive texts you the options and waits for your call. Here, the Checker found two different prices, so I just reply with what I want.
 
 *Show: the Checker's question, your "1", the Instagram post.*
 
-## 0:55 It works the real world too
+## 0:55 Examples
 
-"Plan Jason's birthday party, October 19th at 9, pizza, three friends." Hive finds a bakery that's open and calls them to order the cake. It writes the invites, puts it on the calendar, and designs the invitation. Food and decorations go in the cart, but nothing is bought without your approval.
+Here's HIVE rushing to fix the landing page, pitch deck, and social media post right before an investor meeting.
 
-*Show: the call prompt and Call window, invites in Messages, the Keynote invitation, the Treasurer's question, your "NO".*
+*Show: the Pitch in 5 run (VS Code, the live site, the deck, the Instagram post).*
+
+And here's another example of HIVE organizing a birthday party by calling local bakeries for a cake, DoorDashing food, and sending out invites.
+
+*Show: the bakery call and Call window, the DoorDash cart, invites in Messages.*
 
 ## 1:20 Always in control
 
