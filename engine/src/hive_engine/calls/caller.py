@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("hive.calls")
 POLL_S = 1.0
-MAX_CALL_S = 600
+MAX_CALL_S = 240  # engine-side guard; the agent itself is capped at 180s (elevenlabs.MAX_DURATION_S)
 SUMMARY_MODEL = "claude-opus-5-5"
 
 
@@ -138,21 +138,27 @@ async def _run_live(agent: Agent, res: CallResult, emit, goal: str, context: dic
                 connected = True
                 emit("call_state", state="connected")
                 agent.status(f"On the phone with {res.label}", 0.4)
-            turns = [t for t in conv.get("transcript") or [] if (t.get("message") or "").strip()]
+            turns = _turns(conv)
             for t in turns[seen:]:
-                speaker = "agent" if t.get("role") == "agent" else "them"
-                entry = {"speaker": speaker, "text": t["message"].strip(), "t": t.get("time_in_call_secs")}
+                entry = _entry(t)
                 res.transcript.append(entry)
-                emit("call_transcript", speaker=speaker, text=entry["text"], final=True)
+                emit("call_transcript", speaker=entry["speaker"], text=entry["text"], final=True)
             seen = len(turns)
             if status in ("processing", "done", "failed"):
                 res.duration_s = int((conv.get("metadata") or {}).get("call_duration_secs") or 0)
-                if status == "processing":  # call is over; give the analysis a moment
-                    for _ in range(20):
-                        await asyncio.sleep(1.5)
-                        conv = await el.conversation(res.conversation_id)
-                        if conv.get("status") in ("done", "failed"):
-                            break
+                # Without enterprise monitoring the transcript is usually empty while the call is live
+                # and only appears once the conversation is processed. Wait for it, then replay it.
+                for _ in range(30):
+                    if conv.get("status") in ("done", "failed") and _turns(conv):
+                        break
+                    await asyncio.sleep(1.5)
+                    conv = await el.conversation(res.conversation_id)
+                res.duration_s = int((conv.get("metadata") or {}).get("call_duration_secs") or res.duration_s)
+                for t in _turns(conv)[seen:]:
+                    entry = _entry(t)
+                    res.transcript.append(entry)
+                    emit("call_transcript", speaker=entry["speaker"], text=entry["text"], final=True)
+                    await asyncio.sleep(0.12)  # let the Call window animate the late bubbles
                 analysis = conv.get("analysis") or {}
                 res.outcome = {"success": "success", "failure": "failure"}.get(analysis.get("call_successful"),
                                                                                "failure" if status == "failed" else "unknown")
@@ -162,6 +168,16 @@ async def _run_live(agent: Agent, res: CallResult, emit, goal: str, context: dic
             res.outcome, res.summary = "unknown", "The call ran past the time limit."
     finally:
         await el.close()
+
+
+def _turns(conv: dict[str, Any]) -> list[dict[str, Any]]:
+    """Spoken turns only: drops empty and silence ("...") messages."""
+    return [t for t in conv.get("transcript") or [] if (t.get("message") or "").strip().strip(".")]
+
+
+def _entry(t: dict[str, Any]) -> dict[str, Any]:
+    return {"speaker": "agent" if t.get("role") == "agent" else "them",
+            "text": t["message"].strip(), "t": t.get("time_in_call_secs")}
 
 
 # ---- fake ------------------------------------------------------------------------------------

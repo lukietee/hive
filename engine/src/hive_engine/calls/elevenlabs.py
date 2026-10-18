@@ -21,8 +21,26 @@ import httpx
 API = os.environ.get("ELEVENLABS_API_BASE", "https://api.elevenlabs.io")
 
 
+MAX_DURATION_S = 180      # hard cap per call
+SILENCE_END_S = 20.0      # hang up after this long with nobody speaking
+
+
 class ElevenLabsError(RuntimeError):
     pass
+
+
+def builtin_tools(voicemail_message: str | None = None) -> dict[str, Any]:
+    """System tools: end_call (agent may hang up) and voicemail_detection (leave a short message, hang up)."""
+    vm = voicemail_message or ("Hi, this is Hive, an AI assistant calling for {{user_name}}. "
+                               "Sorry we missed you. We'll try again later. Bye!")
+    return {
+        "end_call": {"type": "system", "name": "end_call",
+                     "description": "End the call once the goal is done, the person says goodbye, or they ask you to stop.",
+                     "params": {"system_tool_type": "end_call"}},
+        "voicemail_detection": {"type": "system", "name": "voicemail_detection",
+                                "description": "Use when you reach a voicemail greeting or answering machine.",
+                                "params": {"system_tool_type": "voicemail_detection", "voicemail_message": vm}},
+    }
 
 
 def missing_live_config() -> list[str]:
@@ -51,12 +69,25 @@ class ElevenLabs:
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else r.content
 
     async def configure_agent(self, agent_id: str, prompt: str, first_message: str,
-                              voice_id: str | None = None) -> None:
-        """Sets this call's instructions on the hosted agent (no Security-tab overrides needed)."""
-        conv: dict[str, Any] = {"agent": {"first_message": first_message, "prompt": {"prompt": prompt}}}
+                              voice_id: str | None = None, max_duration_s: int = MAX_DURATION_S,
+                              voicemail_message: str | None = None) -> None:
+        """Sets this call's instructions on the hosted agent (no Security-tab overrides needed).
+
+        Also caps the call length, lets the agent hang up (end_call) and detect voicemail, and ends
+        the call after a long silence, so a voicemail box can't keep it talking for minutes.
+        """
+        conv: dict[str, Any] = {
+            "agent": {"first_message": first_message,
+                      "prompt": {"prompt": prompt, "built_in_tools": builtin_tools(voicemail_message)}},
+            "conversation": {"max_duration_seconds": max_duration_s},
+            "turn": {"silence_end_call_timeout": SILENCE_END_S},
+        }
         if voice_id:
             conv["tts"] = {"voice_id": voice_id}
         await self._req("PATCH", f"/v1/convai/agents/{agent_id}", json={"conversation_config": conv})
+
+    async def agent(self, agent_id: str) -> dict[str, Any]:
+        return await self._req("GET", f"/v1/convai/agents/{agent_id}")
 
     async def phone_number_id(self, e164: str | None = None) -> str:
         if pid := os.environ.get("ELEVENLABS_PHONE_NUMBER_ID"):
