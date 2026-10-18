@@ -40,6 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
 
         let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--thumbnail"), i + 1 < args.count {
+            Thumbnail.render(to: URL(fileURLWithPath: args[i + 1]))
+            NSApp.terminate(nil)
+            return
+        }
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             NotchSnapshots.render(to: URL(fileURLWithPath: args[i + 1]))
             NSApp.terminate(nil)
