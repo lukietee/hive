@@ -45,9 +45,11 @@ PORT = int(os.environ.get("HIVE_VSCODE_PORT", "8774"))
 FONT_SIZE = 13
 LINE_H = 20
 CHAR_W = 7.83           # Menlo 13px advance width
-TITLE_H = 35            # custom title bar
-TABS_H = 35             # editor tab strip (breadcrumbs off)
-GUTTER_W = 46           # line numbers + decorations, before column 0 (glyph margin & folding off)
+# Measured with the Accessibility tree on VS Code 1.142 (macOS, 744x413 window): the tab strip spans
+# window y+33..y+62 and Monaco's caret textarea sits at x+38 for column 0, y+62 + n*20 for row n.
+TITLE_H = 33            # custom title bar
+TABS_H = 29             # editor tab strip (breadcrumbs off)
+GUTTER_W = 38           # window left edge → column 0 (line numbers; glyph margin, folding, activity bar off)
 ABOVE = 3               # lines kept above a revealed line
 
 SETTINGS: dict[str, Any] = {
@@ -145,7 +147,9 @@ class VSCode:
         self.folder: Path | None = None
         self.pid: int | None = None
         self.rect: Rect | None = None
-        self._http = httpx.AsyncClient(base_url=f"http://127.0.0.1:{PORT}", timeout=30)
+        self._http = httpx.AsyncClient(base_url=f"http://127.0.0.1:{PORT}", timeout=60)
+        # One editor at a time: agents sharing the window take turns (each edit scrolls & types).
+        self.lock = asyncio.Lock()
 
     # ---- lifecycle -------------------------------------------------------------------------------
     async def open(self, folder: Path, rect: Rect | None = None, timeout: float = 45.0) -> None:
@@ -170,6 +174,7 @@ class VSCode:
             raise RuntimeError("VS Code bridge didn't come up (is the extension loading?)")
         self.pid = await self._main_pid()
         await self.command("workbench.action.closeSidebar")
+        await self.command("workbench.action.closeAuxiliaryBar")
         await self.command("workbench.action.closePanel")
         await self.command("workbench.action.closeAllEditors")
         if rect:
@@ -259,22 +264,34 @@ class VSCode:
     async def line_point(self, line: int, view: LineView, col: int = 0) -> tuple[float, float]:
         """Screen point (global top-left) of `line`/`col` in the visible editor."""
         x, y, _w, _h = await self.frame()
-        return (x + GUTTER_W + col * CHAR_W + 4,
+        return (x + GUTTER_W + col * CHAR_W,
                 y + TITLE_H + TABS_H + (line - view.top + 0.5) * LINE_H)
 
     # ---- agent helpers ------------------------------------------------------------------------
     async def point_at_line(self, agent, path: Path, line: int, label: str | None = None, col: int = 0,
-                            end: int | None = None, glide_ms: int = 450) -> tuple[float, float]:
+                            end: int | None = None, glide_ms: int = 450, hold_s: float = 0.0) -> tuple[float, float]:
         """Scroll `line` into view, select it (or line..end), glide the ghost cursor there and click."""
-        view = await self.select(path, line, end)
-        x, y = await self.line_point(line, view, col)
-        await agent.click_at(x, y, glide_ms, label)
+        async with self.lock:
+            view = await self.select(path, line, end)
+            x, y = await self.line_point(line, view, col)
+            await agent.click_at(x, y, glide_ms, label)
+            if hold_s:
+                await asyncio.sleep(hold_s)
         return x, y
 
     async def type_edit(self, agent, path: Path, old: str, new: str, label: str | None = None,
-                        glide_ms: int = 450, chunk: int = 3, delay_ms: int = 16) -> list[int]:
+                        glide_ms: int = 450, chunk: int | None = None, delay_ms: int = 16,
+                        max_type_s: float = 2.0) -> list[int]:
         """Glide to the code being changed, then replace it in the editor, typing the new text
-        visibly, and save. Returns the changed line numbers (1-based) in the new file."""
+        visibly, and save. Long replacements type in bigger chunks so each edit takes at most
+        ~max_type_s. Returns the changed line numbers (1-based) in the new file."""
+        if chunk is None:
+            chunk = max(3, int(len(new) / max(1.0, max_type_s * 1000 / max(delay_ms, 1))) + 1)
+        async with self.lock:
+            return await self._type_edit(agent, path, old, new, label, glide_ms, chunk, delay_ms)
+
+    async def _type_edit(self, agent, path: Path, old: str, new: str, label: str | None,
+                         glide_ms: int, chunk: int, delay_ms: int) -> list[int]:
         text = Path(path).read_text()
         at = text.find(old)
         if at < 0:
