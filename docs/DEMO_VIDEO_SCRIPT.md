@@ -22,7 +22,7 @@ And they can do a lot more: order food on DoorDash, shop on Amazon, post to Inst
 
 ## 0:45 It asks before it decides
 
-When agents disagree, they ask you for your own input. The Checker found two different prices, so I just reply "1". Then Social designs a launch graphic and posts it to Instagram.
+For critical decisions, like spending money or conflicting information, Hive never guesses. It texts you the options and waits for your call. Here, the Checker found two different prices, so I just reply "1". Then Social designs a launch graphic and posts it to Instagram.
 
 *Show: the Checker's question, your "1", the Instagram post.*
 
