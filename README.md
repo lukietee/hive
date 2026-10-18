@@ -86,17 +86,33 @@ Agents never move your real mouse. Each agent drives its windows through their o
 
 ---
 
+## Models
+
+| Model | Provider | What it does in Hive |
+|---|---|---|
+| **Claude Opus 5.5** (`claude-opus-5-5`) | Anthropic | The Conductor: reads a task and plans the team (agents, skills, budgets, dependencies); writes slide copy and launch posts; understands free-text replies to agents' questions; answers "@Agent …" questions from memory; summarizes phone calls |
+| **Claude Sonnet 5.5** (`claude-sonnet-5-5`) | Anthropic | Code, deck and checker agents: read and edit files, run commands, fill slides, review the team's work |
+| **Claude Haiku 5.5** (`claude-haiku-5-5`) | Anthropic | Browser agents (each Browser Use agent's step-by-step decisions); routing texts to the right kind of task in about a second; the phone agent's live conversation |
+| **Gemini 3.1 Flash Image** (`gemini-3.1-flash-image`) | Google | Illustrated launch graphics for Instagram and the party invitation art |
+| **ElevenLabs v4 Turbo** (`eleven_v4_turbo`) | ElevenLabs | The phone agent's voice (text-to-speech, low latency) |
+| **ElevenLabs Scribe Realtime** | ElevenLabs | Speech-to-text: hears the person on the other end of the call |
+| **ElevenLabs Flash v2.5** (`eleven_flash_v2_5`) | ElevenLabs | Voices simulated calls for testing |
+
+Each Claude role can be swapped with an environment variable (`HIVE_CONDUCTOR_MODEL`, `HIVE_WORKER_MODEL`, `HIVE_BROWSER_MODEL`, `HIVE_MESSENGER_MODEL`).
+
+---
+
 ## Tech stack
 
 | Layer | Technology |
 |---|---|
-| **Agent brains** | Anthropic Claude: Opus 5.5 (Conductor, planning), Sonnet 5.5 (code agents), Haiku 5.5 (browser agents, message routing) |
+| **Agent brains** | Anthropic Claude (Opus 5.5, Sonnet 5.5, Haiku 5.5); see [Models](#models) |
 | **Browser agents** | Browser Use, Playwright, Chrome DevTools Protocol (each agent in its own Chrome window) |
 | **Code agents** | Visual Studio Code driven by a small bundled extension (open, select, type, terminal) |
 | **Mac apps** | macOS Accessibility API (pyobjc), AppleScript: Messages, Notes, Reminders, Calendar, Keynote, Contacts |
 | **Messaging** | Photon 2.0: dedicated iMessage line, group chats, REST API |
-| **Phone calls** | ElevenLabs Conversational AI, connected to a Photon phone number over SIP (TLS) |
-| **Images** | Google Gemini image generation (illustrated launch graphics, party invitations), Pillow for type |
+| **Phone calls** | ElevenLabs Conversational AI (Claude Haiku 5.5 brain, v4 Turbo voice, Scribe Realtime ears), connected to a Photon phone number over SIP (TLS) |
+| **Images** | Google Gemini 3.1 Flash Image (illustrated launch graphics, party invitations), Pillow for type |
 | **Slides** | python-pptx, LibreOffice (headless) + PyMuPDF for live slide renders, Keynote |
 | **Deploys** | Vercel CLI |
 | **Mac app** | Swift 6, SwiftUI + AppKit: notch panel, transparent click-through overlay for ghost cursors, Deck Viewer, Call window |
