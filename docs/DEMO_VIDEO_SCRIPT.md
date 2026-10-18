@@ -2,25 +2,38 @@
 
 ## 0:00 The widget
 
-HIVE is a desktop widget that lives directly at the top of your screen. It looks like part of your Mac, until you give it a job.
+HIVE is a desktop widget that lives directly at the top of your screen. It has access to every single file and application on your computer.
 
 *Show: hover the notch, it opens to "Ask Hive to…", then collapses.*
 
 ## 0:10 Text it from anywhere
 
-You don't need to be at your computer. Just text Hive: "investors are here in five, get Whisk ready." Hive's Conductor reads the task and builds a team for it.
+You actually don't need to be at your computer to use HIVE. Just text Hive: "investors are here in five, get Whisk ready." Hive's Conductor reads the task and builds a team for it.
 
 *Show: the text on your phone, a new group chat, agents joining ("➕ Fixer", "➕ Web"…).*
 
 ## 0:22 A swarm on one computer
 
-Every agent gets its own ghost cursor, so a whole team works your computer at the same time without touching your mouse. One fixes the bug in VS Code and gets the tests passing. Another finishes the website and deploys it live. One builds the pitch deck.
+Every agent gets its own cursor, so a whole team works your computer at the same time without touching your mouse. One fixes the bug in VS Code and gets the tests passing. Another finishes the website and deploys it live. One builds the pitch deck.
+
+What the agents can do:
+- Coding: fix bugs and write features in VS Code, run the tests in the terminal
+- Websites: finish a site and deploy it live to Vercel
+- Slides: build and edit a PowerPoint (.pptx) deck slide by slide, and open it in Keynote
+- Social media: design a graphic with Gemini and post it to Instagram
+- Browsing and research: search, compare and read any website
+- Food delivery: build a DoorDash order
+- Shopping: fill an Amazon cart with decorations or gifts
+- Phone calls: find a business on Google Maps and call it with an AI voice
+- Texting: write messages to your contacts in iMessage
+- Planning: checklists in Notes, Reminders, Calendar events, and invitations in Keynote
+- Budgeting: a Treasurer that tracks spending and asks before any purchase
 
 *Show: the 2×2 screen, VS Code going to 5/5, the live Vercel site, slides filling in.*
 
 ## 0:45 It asks before it decides
 
-When agents disagree, they ask you. The Checker found two different prices, so I just reply "1". Then Social designs a launch graphic and posts it to Instagram.
+When agents disagree, they ask you for your own input. The Checker found two different prices, so I just reply "1". Then Social designs a launch graphic and posts it to Instagram.
 
 *Show: the Checker's question, your "1", the Instagram post.*
 
