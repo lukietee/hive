@@ -339,6 +339,11 @@ class Messenger:
         if not text:
             return
         log.info("owner: %s", text)
+        if text == "CANCEL":  # the safe word: all caps, nothing else
+            self.questions.clear()
+            await self.say_as("Hive", "🛑 Stopping every agent and closing their windows…")
+            await self.command("cancel")
+            return
         inb = classify(text, self.resolve)
 
         if inb.kind == "start":

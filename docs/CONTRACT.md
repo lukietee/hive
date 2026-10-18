@@ -68,6 +68,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `start` | `{ "scenario": "pitch_in_5" \| "party" \| "demo_sim" \| "goal", "goal"?, "fast"?, "auto_human"?, "answer_timeout"? }`. `scenario: "goal"` carries the human's typed `goal` (notch "Ask Hive to…" box) for the dynamic orchestrator, plus optional `"workspace": path` (agents edit a temp copy) and `"urls": [str]`. Always accepted; while a scenario runs, a second start is rejected with a `chat` line (agent `null`) |
 | `pause` / `resume` | `{ "agent"?: id }` (all agents if omitted) |
 | `say` | `{ "agent"?: id, "text" }`: a message from the human (chat / @mention) |
+| `cancel` | `{}` | The safe word: stop the running scenario now, close every agent window (agent Chrome, agent VS Code), then `run_reset` |
 | `answer` | `{ "agent": id, "choice", "free_text"?: true }`: the reply to `needs_human`. `free_text: true` means the human typed `choice` in their own words (notch "Other…" or an iMessage reply that isn't one of the options); interpret it rather than matching it to an option. For `kind: "approval"`, `choice` is `"YES"` or `"NO"` |
 | `deck_viewer` | `{ "x", "y", "w", "h" }`: the native Deck Viewer's big-slide rect at 1× zoom, in screen points. Sent when the viewer appears, moves or resizes, and on (re)connect |
 | `deck_box` | `{ "slide", "label", "x", "y", "w", "h" }`: reply to each `deck_focus`, the focused box's **final on-screen rect after the viewer's zoom**, in screen points. Arrives within ~50 ms of `deck_focus` |

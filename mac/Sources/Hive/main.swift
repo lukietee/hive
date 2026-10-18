@@ -156,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let demosItem = NSMenuItem(title: "Demos", action: nil, keyEquivalent: "")
         demosItem.submenu = demos
         menu.addItem(demosItem)
+        menu.addItem(makeItem("Cancel Run (stop all agents)", #selector(cancelRun), key: "."))
         let pause = makeItem("Pause All Agents", #selector(togglePauseAll), key: "")
         menu.addItem(pause)
         pauseItem = pause
@@ -183,6 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func startPitch() { store.start("pitch_in_5") }
     @objc private func startDemoSim() { store.start("demo_sim") }
     @objc private func togglePauseAll() { store.togglePauseAll() }
+    @objc private func cancelRun() { store.onCommand?("cancel", [:]) }
 
     @objc private func runSimulation() {
         client.disconnect()

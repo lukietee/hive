@@ -27,7 +27,7 @@ SPEAKERS = {"Hive", "Conductor"}
 
 # Texts stay short and scannable: one sentence per update, a few status emoji at the front only.
 ICON = {"added": "➕", "done": "✅", "question": "❓", "approval": "💳", "call": "📞", "warn": "⚠️",
-        "finish": "🏁", "ok": "👍", "live": "👀", "post": "📸"}
+        "finish": "🏁", "ok": "👍", "live": "👀", "post": "📸", "stop": "🛑"}
 _WARN = re.compile(r"(?i)\b(couldn'?t|could not|failed|blocked|error|partial|unable|stuck|timed out)\b")
 
 

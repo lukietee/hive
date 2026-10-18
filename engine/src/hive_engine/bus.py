@@ -7,6 +7,8 @@ Clients → engine: {"v": 1, "cmd": ..., "args": {...}} commands.
 from __future__ import annotations
 
 import asyncio
+import signal
+import os
 import json
 import logging
 import re
@@ -29,6 +31,31 @@ PORT = 8765
 def _waiting(agent: Agent) -> bool:
     fut = getattr(agent, "_pending_answer", None)
     return fut is not None and not fut.done()
+
+
+async def close_automation_windows() -> None:
+    """Closes windows our agents opened that a cancelled run left behind: Chrome launched by
+    Playwright (it uses --remote-debugging-pipe; a person's own Chrome never does), the agents'
+    Chrome profile, and the agents' VS Code instance. Only those app processes are matched (by
+    their executable path), so the user's own apps and any other program are never touched."""
+    try:
+        proc = await asyncio.create_subprocess_exec("ps", "-axo", "pid=,command=", stdout=asyncio.subprocess.PIPE)
+        out, _ = await proc.communicate()
+    except Exception:
+        return
+    me = os.getpid()
+    for line in out.decode(errors="replace").splitlines():
+        pid_s, _, cmd = line.strip().partition(" ")
+        if not pid_s.isdigit() or int(pid_s) == me:
+            continue
+        chrome = cmd.startswith(("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                                 os.path.expanduser("~/Library/Caches/ms-playwright")))
+        vscode = cmd.startswith("/Applications/Visual Studio Code.app/") and "HiveVSCode" in cmd
+        if (chrome and ("--remote-debugging-pipe" in cmd or "HiveAgentsChrome" in cmd)) or vscode:
+            try:
+                os.kill(int(pid_s), signal.SIGTERM)
+            except Exception:
+                pass
 
 
 class Bus:
@@ -110,10 +137,33 @@ class Bus:
         finally:
             self.running = None
 
+    async def cancel_run(self) -> None:
+        """The safe word: stop the running scenario now. Cancelling the task unwinds every agent
+        (browser contexts, VS Code, worker subprocesses close in their finally blocks); then any
+        automation windows still open are closed and clients clear their cursors."""
+        task = getattr(self, "_run_task", None)
+        name = self.running
+        if task and not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(task), 15)
+            except BaseException:
+                pass
+        await close_automation_windows()
+        await asyncio.sleep(3)              # a window that was still launching gets a second sweep
+        await close_automation_windows()
+        self.running = None
+        self.agents.clear()
+        self.emit(None, "run_reset", {"scenario": name, "cancelled": True})
+        self.emit(None, "chat", {"text": "Hive: Cancelled. Every agent stopped and their windows are closed."
+                                 if name else "Hive: Nothing was running."})
+
     async def _run_start(self, name: str, args: dict[str, Any]) -> None:
         assert self.on_start
         try:
             await self.on_start(name, args)
+        except asyncio.CancelledError:
+            log.info("scenario %s cancelled", name)
         except Exception as exc:  # report, never crash the bus
             log.exception("scenario %s failed", name)
             self.emit(None, "chat", {"text": f"🐝 Hive: {name} failed: {exc}"})
@@ -152,9 +202,11 @@ class Bus:
                 self.emit(None, "chat", {"text": f"🐝 Hive: {self.running} is already running, so I ignored that start."})
             elif self.on_start:
                 self.running = name  # set synchronously so a double-click can't start two runs
-                asyncio.create_task(self._run_start(name, args))
+                self._run_task = asyncio.create_task(self._run_start(name, args))
             else:
                 log.warning("start ignored: no on_start handler")
+        elif cmd == "cancel":
+            await self.cancel_run()
         elif cmd == "pause":
             for a in agents:
                 a.pause()
