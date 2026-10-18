@@ -779,7 +779,7 @@ async def social_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts,
 async def instagram_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, out: dict) -> None:
     """Real post on Instagram (agents' HiveAgentsChrome profile), only after an explicit human YES.
     The composer window closes first so the Instagram window takes the same grid cell."""
-    from ..apps.instagram import InstagramError, InstagramSession, clean_caption, make_square
+    from ..apps.instagram import InstagramError, InstagramSession, clean_caption, make_square, gemini_square
 
     rect = None
     try:
@@ -788,7 +788,9 @@ async def instagram_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Op
     except Exception:
         pass
     caption = clean_caption(h.post or "")
-    image = make_square(ws / "social" / "launch.png", price=h.price or "$29")
+    # A different graphic every run (Gemini), falling back to the drawn square.
+    image = (await gemini_square(ws / "social" / "launch.png", price=h.price or "$29")
+             or make_square(ws / "social" / "launch.png", price=h.price or "$29"))
     out["instagram"] = {"caption": caption, "image": str(image)}
     await s.close()                      # the composer window; the Social cursor moves to Instagram
     s.status("Opening Instagram", 0.5)

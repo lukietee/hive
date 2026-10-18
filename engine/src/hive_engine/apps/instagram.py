@@ -16,6 +16,7 @@ rehearsal discards the draft.
 from __future__ import annotations
 
 import asyncio
+import os
 import logging
 import re
 from pathlib import Path
@@ -153,6 +154,81 @@ def clean_caption(text: str) -> str:
 
 
 # ---- the post image ----------------------------------------------------------------------------
+# ---- Launch graphic: a fresh Gemini image each run, with the brand text set cleanly on top ----
+GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
+_SCENES = [
+    "a ceramic bowl of bright green matcha with a bamboo whisk on a sunny dorm desk next to a laptop and textbooks",
+    "an iced matcha latte in a clear glass on a college library table, soft window light",
+    "overhead flat lay of matcha powder, a chasen whisk and a chawan bowl on cream linen",
+    "a matcha latte with latte art held up against a blurred college campus quad at golden hour",
+    "a cozy dorm room shelf with a matcha tin, a mug and string lights, late-night study vibe",
+    "matcha being whisked into foam, close-up, steam rising, minimalist Japanese ceramic",
+    "a delivery box opened on a dorm bed revealing matcha tins and a whisk, playful and bright",
+]
+_STYLES = ["editorial food photography", "soft pastel product photo", "bold modern ad photo",
+           "film-camera snapshot look", "clean minimalist studio shot"]
+
+
+async def gemini_square(out: Path, price: str = "$29", headline: str = "Matcha, delivered to your dorm.",
+                        timeout: float = 30.0) -> Path | None:
+    """A new 1080x1080 launch image every run: Gemini draws a photo (no text), then the brand text is
+    set on top with Pillow so it's always spelled right. Returns None if Gemini isn't available."""
+    import base64
+    import io
+    import random
+
+    import httpx
+    from PIL import Image
+
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        return None
+    scene, style = random.choice(_SCENES), random.choice(_STYLES)
+    prompt = (f"{style} of {scene}. Fresh green matcha is the hero. Square composition with calm empty "
+              "space in the bottom third. Absolutely no text, letters, logos or watermarks.")
+    body = {"contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": "1:1"}}}
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.post(url, params={"key": key}, json=body)
+        r.raise_for_status()
+        parts = r.json()["candidates"][0]["content"]["parts"]
+        data = next(p["inlineData"]["data"] for p in parts if "inlineData" in p)
+        img = Image.open(io.BytesIO(base64.b64decode(data))).convert("RGB").resize((1080, 1080))
+    except Exception as exc:
+        log.warning("gemini image failed (%s); using the drawn square", exc)
+        return None
+    _brand_band(img, price, headline)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out, "PNG")
+    return out
+
+
+def _brand_band(img, price: str, headline: str) -> None:
+    """A translucent band at the bottom with the wordmark, headline and price."""
+    from PIL import Image, ImageDraw
+    W = img.width
+    band = Image.new("RGBA", (W, 300), (20, 28, 22, 190))
+    img.paste(band, (0, W - 300), band)
+    d = ImageDraw.Draw(img)
+    f_big, f_mid, f_small = _font(84, True), _font(44), _font(40, True)
+    d.text((64, W - 270), "Whisk", font=f_big, fill=(243, 239, 228))
+    d.text((64, W - 165), headline, font=f_mid, fill=(243, 239, 228))
+    d.text((64, W - 100), f"{price}/mo  ·  $19 for students", font=f_small, fill=(160, 214, 140))
+
+
+def _font(size: int, bold: bool = False):
+    from PIL import ImageFont
+    for path, idx in (("/System/Library/Fonts/Avenir Next.ttc", 8 if bold else 7),
+                      ("/System/Library/Fonts/Helvetica.ttc", 1 if bold else 0)):
+        try:
+            return ImageFont.truetype(path, size, index=idx)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
 def make_square(out: Path, price: str = "$29", headline: str = "Matcha, delivered to your dorm.") -> Path:
     """A 1080x1080 branded square (Pillow, local, no APIs)."""
     from PIL import Image, ImageDraw, ImageFont
