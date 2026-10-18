@@ -301,6 +301,9 @@ final class HiveStore: ObservableObject {
     }
 
     private func swarmSummary(_ d: [String: Any]) {
+        // The run is over: any agent that never sent agent_done flies back into the notch too.
+        for id in order where agents[id]?.leaving == false { done(id, [:]) }
+        withAnimation(.easeOut(duration: 0.4)) { highlights.removeAll(); links.removeAll() }
         let lines = (d["lines"] as? [Any])?.map { CleanText.strip("\($0)") } ?? []
         // The run is over: the Deck Viewer slides away after a moment so the screen is clean.
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.deck.reset() }
