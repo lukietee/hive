@@ -34,6 +34,8 @@ PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "summary": {"type": "string", "description": "One sentence: how the team will tackle the goal."},
+        "title": {"type": "string", "description": "Short chat title for this run, 2-5 words, no emoji, e.g. 'Boba Near UCLA'"},
+        "emoji": {"type": "string", "description": "One emoji that fits the goal, e.g. 🧋"},
         "agents": {
             "type": "array", "minItems": 1, "maxItems": MAX_AGENTS,
             "items": {

@@ -1,4 +1,7 @@
-"""Messenger: bridges the engine bus ⇄ one iMessage thread with the owner.
+"""Messenger: bridges the engine bus ⇄ the owner's iMessage chat.
+
+Shared Photon line: one 1:1 thread. Dedicated line: every run ("session") gets its own chat — a
+group with the owner plus any listed members — announced as agents join ("Hive added Cake: …").
 
 It is just another bus client (like the live relay), so the engine needs no changes:
   bus events  → plain-text texts ("Checker: …"), batched so status chatter isn't spammy
@@ -16,13 +19,15 @@ import os
 import re
 import socket
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import websockets
 
 from .. import memory
 from ..agents import AGENTS, find_agent_by_name
-from .fmt import Question, classify, format_question, parse_reply, prefix, question_from_event, strip_emoji
+from .fmt import ICON, brief, tagged, warn_or, _WARN as WARN_RE, Question, classify, format_question, parse_reply, prefix, question_from_event, strip_emoji
 
 log = logging.getLogger("hive.messenger")
 
@@ -32,6 +37,15 @@ BATCH_S = float(os.environ.get("HIVE_MESSENGER_BATCH_S", "2.0"))
 # Events that become texts. agent_status / cursor events never do (that's what 👁 live view is for).
 TEXTED = {"chat", "needs_human", "agent_done", "swarm_summary", "call_ended"}
 ACTIVITY = {"agent_status", "moving_to", "click", "typing", "agent_done"}
+ANNOUNCE_S = float(os.environ.get("HIVE_ANNOUNCE_S", "1.5"))  # collect spawns + first status, then announce
+SESSION_FILE = Path(os.environ.get("HIVE_STATE_DIR") or Path(__file__).resolve().parents[3] / "state") \
+    / "messenger_session.json"
+SCENARIO_TITLES = {"pitch_in_5": "Pitch in 5", "party": "Surprise Party",
+                   "demo_sim": "Hive demo", "goal": "Hive"}
+
+
+def group_members_from_env() -> list[str]:
+    return [p.strip() for p in os.environ.get("HIVE_GROUP_MEMBERS", "").split(",") if p.strip()]
 
 
 def lan_ip() -> str:
@@ -62,13 +76,21 @@ class Messenger:
         self.calls: dict[str, str] = {}          # call_id → who was called ("Bakery")
         self._said: dict[str, tuple[float, str]] = {}  # agent → (when, call summary just texted)
         self._batch: list[str] = []
+        self._batch_from: list[str | None] = []   # which agent queued each batch line (for de-duping)
         self._batch_task: asyncio.Task | None = None
         self._connected_at = 0.0
         self._send_lock = asyncio.Lock()
+        # Sessions (dedicated line): one chat per run.
+        self.session: dict[str, Any] | None = None
+        self._session_lock = asyncio.Lock()
+        self._intro: dict[str, str] = {}          # agent → first goal/status, for the "added" line
+        self._joined: list[str] = []              # spawned, not yet announced
+        self._announce_task: asyncio.Task | None = None
 
     # ---- lifecycle -------------------------------------------------------------------------
     async def run(self) -> None:
         await self.t.start()
+        await self._resume_session()
         while True:
             try:
                 async with websockets.connect(self.bus_url, max_size=None) as ws:
@@ -109,12 +131,23 @@ class Messenger:
         return set(self.names.values()) | {a["name"] for a in AGENTS.values()}
 
     async def say_as(self, name: str, text: str, agent: str | None = None) -> None:
+        icon = next((i for i in ICON.values() if text.startswith(i + " ")), None)
+        if icon:  # our own status icon goes in front of the name: "👍 Hive: Passed to the team"
+            await self._send(f"{icon} {prefix(name, text[len(icon) + 1:], self._known())}", agent)
+            return
         await self._send(prefix(name, text, self._known()), agent)
 
-    def _queue(self, text: str) -> None:
+    def _queue(self, text: str, agent: str | None = None, progress: bool = False) -> None:
         self._batch.append(text)
+        self._batch_from.append(f"progress:{agent}" if progress and agent else agent)
         if not self._batch_task or self._batch_task.done():
             self._batch_task = asyncio.create_task(self._flush_later())
+
+    def _drop_progress(self, agent: str) -> None:
+        """An agent's ✅ wrap-up replaces its progress lines still waiting in the batch."""
+        keep = [(t, a) for t, a in zip(self._batch, self._batch_from) if a != f"progress:{agent}"]
+        self._batch = [t for t, _ in keep]
+        self._batch_from = [a for _, a in keep]
 
     async def _flush_later(self) -> None:
         await asyncio.sleep(BATCH_S)
@@ -123,18 +156,104 @@ class Messenger:
     async def flush(self) -> None:
         if not self._batch:
             return
-        lines, self._batch = self._batch, []
+        lines, self._batch, self._batch_from = self._batch, [], []
         await self._send("\n".join(lines))
+
+    # ---- sessions (one chat per run on a dedicated line) -----------------------------------
+    def _groups_on(self) -> bool:
+        return bool(getattr(self.t, "group_capable", False))
+
+    def _save_session(self) -> None:
+        try:
+            SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+            SESSION_FILE.write_text(json.dumps(self.session or {}, indent=2))
+        except OSError as exc:
+            log.warning("couldn't save session: %s", exc)
+
+    async def _resume_session(self) -> None:
+        if not self._groups_on():
+            return
+        try:
+            saved = json.loads(SESSION_FILE.read_text())
+        except (OSError, ValueError):
+            return
+        if saved.get("space_id") and not saved.get("done") and await self.t.resume(saved["space_id"]):
+            self.session = saved
+            log.info("rejoined session %r in %s", saved.get("title"), saved["space_id"])
+
+    async def start_session(self, title: str, goal: str = "", members: list[str] | None = None) -> None:
+        """Open the chat for a new run. Members: the owner plus HIVE_GROUP_MEMBERS and the event's
+        list, nobody else. On a shared line this is a no-op (everything stays in the 1:1)."""
+        if not self._groups_on():
+            return
+        async with self._session_lock:
+            if self.session and not self.session.get("done") and self.session.get("title") == title:
+                return  # same run (session_start after a start command, or a replay)
+            await self.flush()
+            mem = list(dict.fromkeys([*group_members_from_env(), *(members or [])]))
+            space = await self.t.open_session(title, mem)
+            if not space:
+                log.warning("couldn't open a chat for %r; staying in the current one", title)
+                return
+            self.session = {"space_id": space, "title": title, "goal": goal, "members": mem,
+                            "group": len(mem) > 0, "created_at": time.time(), "done": False}
+            self._save_session()
+        header = title if self._has_emoji_prefix(title) else f"🐝 {title}"
+        if goal and goal.strip() != title.strip():
+            header += f"\n{brief(goal, 100)}"
+        await self._send(header)
+
+    async def _ensure_session(self, hint: str | None = None) -> None:
+        if not self._groups_on() or (self.session and not self.session.get("done")):
+            return
+        title = hint or f"Hive run {datetime.now().strftime('%-I:%M %p')}"
+        await self.start_session(title)
+
+    def _announce(self, agent: str) -> None:
+        if agent not in self._joined:
+            self._joined.append(agent)
+        if not self._announce_task or self._announce_task.done():
+            self._announce_task = asyncio.create_task(self._announce_later())
+
+    async def _announce_later(self) -> None:
+        await asyncio.sleep(ANNOUNCE_S)
+        joined, self._joined = self._joined, []
+        lines = []
+        for a in joined:
+            what = self._intro.get(a, "")
+            lines.append(f"{ICON['added']} {self.name_of(a)}" + (f": {what}" if what else ""))
+        if lines:
+            await self.flush()
+            await self._send("\n".join(lines))
 
     # ---- bus events ------------------------------------------------------------------------
     async def on_event(self, e: dict[str, Any]) -> None:
         typ, agent, d = e.get("type"), e.get("agent"), e.get("data") or {}
         replay = float(e.get("ts") or 0) < self._connected_at - 0.5  # history sent on connect
 
+        if typ == "session_start":
+            if not replay:
+                # Optional "emoji" field: the run's icon, shown in front of the title in the chat.
+                title = strip_emoji(str(d.get("title") or d.get("goal") or "Hive run"))
+                emoji = str(d.get("emoji") or "").strip()[:4]
+                await self.start_session(f"{emoji} {title}" if emoji else title,
+                                         strip_emoji(str(d.get("goal") or "")),
+                                         # Only phone numbers can join the group (never agent dicts or names).
+                                         [str(m) for m in d.get("members") or []
+                                          if isinstance(m, str) and re.fullmatch(r"\+\d{8,15}", m.strip())])
+            return
         if typ == "agent_spawn" and agent:
             self.names[agent] = strip_emoji(str(d.get("name") or self.name_of(agent)))
             self.active.add(agent)
+            intro = d.get("goal") or d.get("role") or d.get("task") or d.get("text")
+            if intro:
+                self._intro[agent] = self._short(intro)
+            if not replay and self._groups_on():
+                await self._ensure_session()
+                self._announce(agent)
             return
+        if typ == "agent_status" and agent and agent not in self._intro and d.get("text"):
+            self._intro[agent] = self._short(d["text"])
         if agent and typ in ACTIVITY and agent in self.questions and typ != "agent_done":
             # Answered somewhere else (the notch) — the agent moved on.
             self.questions.pop(agent, None)
@@ -150,12 +269,21 @@ class Messenger:
         if typ == "chat":
             text = strip_emoji(str(d.get("text", "")))
             if text and not self._repeat(agent, text):
-                self._queue(prefix(name, text, self._known()))
+                self._queue(warn_or(prefix(name, brief(text), self._known()), text), agent, progress=True)
                 if agent:
                     memory.append(agent, "text_out", text)
+            if d.get("image"):  # optional local path / URL (e.g. the Keynote invite): send after its caption
+                await self.flush()
+                await self.t.send_image(str(d["image"]))
         elif typ == "agent_done":
-            if d.get("summary"):
-                self._queue(f"{name}: Done. {strip_emoji(str(d['summary']))}")
+            summ = str(d.get("summary") or "")
+            if agent:
+                self._drop_progress(agent)
+            if summ:
+                line = f"{name}: {brief(summ, 90)}"
+                self._queue(tagged("warn", line) if WARN_RE.search(summ) else tagged("done", line))
+            elif self._groups_on():
+                self._queue(tagged("done", f"{name} done"))
         elif typ == "needs_human" and agent:
             q = question_from_event(agent, name, d, float(e.get("ts") or time.time()))
             self.questions[agent] = q
@@ -165,15 +293,29 @@ class Messenger:
             await self._send(format_question(q), agent)
         elif typ == "swarm_summary":
             await self.flush()
-            lines = [strip_emoji(str(x)) for x in d.get("lines") or []]
-            body = "\n".join(f"- {x}" for x in lines if x)
-            await self._send(f"Hive: {strip_emoji(str(d.get('title', 'Done')))}" + (f"\n\n{body}" if body else ""))
+            lines = [brief(x, 70) for x in d.get("lines") or []]
+            body = "\n".join(f"• {x}" for x in lines[:6] if x)
+            await self._send(tagged("finish", brief(d.get("title", "Done"), 80)) + (f"\n{body}" if body else ""))
+            if self.session:
+                self.session["done"] = True  # the next run opens a new chat
+                self._save_session()
         elif typ == "call_ended":
             await self.flush()
             who = self.calls.pop(str(d.get("call_id")), None) or "the call"
             summary = strip_emoji(str(d.get("summary", "")))
             self._said[agent or ""] = (time.time(), summary)  # the agent often chats the same summary next
-            await self.say_as(name, f"Call with {who} ended. {summary}".strip(), agent)
+            await self._send(tagged("call", f"{name}: call with {who} done. {brief(summary, 110)}".strip()), agent)
+
+    @staticmethod
+    def _has_emoji_prefix(title: str) -> bool:
+        return bool(title) and strip_emoji(title[:3]) != title[:3].strip()
+
+    @staticmethod
+    def _short(text: Any, n: int = 70) -> str:
+        t = strip_emoji(str(text)).strip().rstrip(".")
+        if re.match(r"^[A-Z][a-z]+ing\b", t):  # "Calling the bakery" → "calling the bakery"
+            t = t[0].lower() + t[1:]
+        return t if len(t) <= n else t[: n - 1].rstrip() + "…"
 
     def _repeat(self, agent: str | None, text: str) -> bool:
         """True if this chat line just repeats a summary we already texted for the agent."""
@@ -199,16 +341,21 @@ class Messenger:
         inb = classify(text, self.resolve)
 
         if inb.kind == "start":
+            title = SCENARIO_TITLES.get(inb.scenario or "", inb.scenario or "Hive run")
+            if self._groups_on():
+                if self.session:
+                    self.session["done"] = True
+                await self.start_session(title)
             await self.command("start", scenario=inb.scenario)
-            await self.say_as("Hive", f"Starting {'Pitch in 5' if inb.scenario == 'pitch_in_5' else inb.scenario}.")
+            await self.say_as("Hive", f"Starting {title}")
         elif inb.kind in ("pause", "resume"):
             await self.command(inb.kind)
             await self.say_as("Hive", "Paused everyone." if inb.kind == "pause" else "Back to work.")
         elif inb.kind == "show":
-            await self.say_as(self.name_of(inb.agent), f"Watch me live: {live_url(inb.agent)}", inb.agent)
+            await self.say_as(self.name_of(inb.agent), f"{ICON['live']} Watch live: {live_url(inb.agent)}", inb.agent)
         elif inb.kind == "everyone":
             await self.command("say", text=inb.text)
-            await self.say_as("Hive", "Got it, passing that to everyone.")
+            await self.say_as("Hive", tagged("ok", "Sent to everyone"))
         elif inb.kind == "mention":
             await self._to_agent(inb.agent, inb.text)
         else:
@@ -217,10 +364,16 @@ class Messenger:
                 await self._answer(q, text)
             elif self.active:
                 await self.command("say", text=text)
-                await self.say_as("Hive", "Got it, passing that to the team.")
+                await self.say_as("Hive", tagged("ok", "Passed to the team"))
+            elif len(text) >= 8 and len(text.split()) >= 2:
+                # Anything else is a goal: the general orchestrator plans a team for it and opens a group.
+                # Texted goals stay read-only (web browsing, code/slides on temp copies): no calls, no texts
+                # to other people, no purchases. Real-world skills only run from the party scenario.
+                await self.say_as("Hive", tagged("ok", "On it. Starting a group for this"))
+                await self.command("start", scenario="goal", goal=text)
             else:
-                await self.say_as("Hive", 'Nothing is running right now. Text "start" to run Pitch in 5, '
-                                          'or @ an agent to ask about earlier work.')
+                await self.say_as("Hive", 'Text me a goal (e.g. "find the 3 best boba shops near UCLA"), '
+                                          '"start" for Pitch in 5, or @ an agent.')
 
     async def _to_agent(self, agent: str, text: str) -> None:
         memory.append(agent, "text_in", text)
@@ -237,7 +390,9 @@ class Messenger:
     async def _answer(self, q: Question, text: str) -> None:
         r = parse_reply(q, text)
         if r.rejected:
-            await self._send(f"{q.name}: I need an explicit YES to spend money. Reply YES to approve or NO.", q.agent)
+            need = "to place the call" if q.kind == "call" else "to spend money"
+            icon = ICON["call"] if q.kind == "call" else ICON["approval"]
+            await self._send(f"{icon} {q.name}: I need a YES {need}. Reply YES or NO", q.agent)
             return
         choice, free = r.choice, r.free_text
         if free and q.options:
@@ -249,12 +404,14 @@ class Messenger:
         if free:
             args["free_text"] = True
         await self.command("answer", **args)
-        if q.kind == "approval":
+        if q.kind == "call":
+            ack = "Calling now." if choice == "YES" else "OK, not calling."
+        elif q.kind == "approval":
             ack = "Approved." if choice == "YES" else "Cancelled, nothing was charged."
         elif free:
             ack = "Got it, I'll work with that."
         else:
-            ack = f"Got it, going with {choice}."
+            ack = f"Got it: {choice}"
         await self.say_as(q.name, ack, q.agent)
 
     # ---- Claude helpers (optional; the thread still works without a key) -------------------

@@ -27,6 +27,17 @@ Then **text the Hive line first** (anything, e.g. "hi"). Photon only lets a shar
 
 Text `start` to run Pitch in 5.
 
+## Dedicated line (group chats)
+If the project has a dedicated iMessage line (Dashboard → iMessage shows your own number, e.g. +1 (628) 997-8961; the API reports `mode: "dedicated"`), the Messenger detects it at startup and:
+- texts **first** (no "text the line once" step), from the dedicated number, in a 1:1 with `HIVE_OWNER_PHONE`;
+- opens a **group chat per run** with you plus `HIVE_GROUP_MEMBERS` (comma-separated `+1…` numbers in `engine/.env`) and/or the `members` of the run's `session_start` event, then announces agents as they join ("Hive added Cake: calling the bakery").
+
+Notes:
+- Save the dedicated number in Contacts as **Hive**. The old shared number still delivers your texts to Hive, but replies come from the dedicated one.
+- A group needs at least one other person. Photon reuses an existing chat with the same people, so back-to-back runs with the same members share one group (each run starts with a `Hive: New run: …` header).
+- Photon's REST API can't rename the group or set its photo (only the spectrum-ts SDK can), so iMessage shows the group by member names.
+- Optional `.env`: `HIVE_GROUP_MEMBERS=+1…,+1…`, `HIVE_IMESSAGE_LINE=+1…` (only if the project owns several iMessage lines), `HIVE_PHOTON_MODE=shared|dedicated` (force a mode).
+
 ## What works on a shared line
 - 1:1 text both ways, and images (screenshots) as attachments.
 - **No group chats** (dedicated lines only). That's why it's one thread with "Name:" prefixes and @mentions.

@@ -22,6 +22,7 @@ from typing import Any
 from playwright.async_api import async_playwright
 
 from ..agents import AGENTS
+from .. import layout
 from ..browser_agent import Rect, launch_chrome, open_window, page_screen_rect
 from ..bus import Bus
 from ..http_server import HTTP_PORT
@@ -89,12 +90,9 @@ async def screen_area(browser) -> tuple[int, int, int, int]:
     return tuple(int(v) for v in s)  # type: ignore[return-value]
 
 
-def grid(area: tuple[int, int, int, int], n: int, top_gap: int = 34) -> list[Rect]:
-    left, top, sw, sh = area
-    cols = 1 if n <= 1 else 2 if n <= 4 else 3
-    rows = max(1, math.ceil(n / cols))
-    cw, ch = sw // cols, (sh - top_gap) // rows
-    return [Rect(left + (i % cols) * cw, top + top_gap + (i // cols) * ch, cw, ch) for i in range(n)]
+def grid(area: tuple[int, int, int, int], n: int) -> list[Rect]:
+    """Even, non-overlapping cells for n windows (see layout.py)."""
+    return layout.grid(n, area)
 
 
 def cost_estimate(browser_costs: float) -> float:
@@ -126,6 +124,13 @@ async def run(bus: Bus, render_dir: Path, goal: str = "", workspace: str | None 
                agents=[{"id": s.id, "name": s.name, "worker": s.worker, "symbol": s.symbol, "color": s.color,
                         "goal": s.goal, "depends_on": s.depends_on} for s in specs],
                plan_s=round(time.monotonic() - t0, 1))
+    meta = dict(conductor.LAST_META)
+    title = meta.get("title") or (goal if len(goal) <= 40 else goal[:37].rstrip() + "…")
+    out["title"] = title
+    # Opens the run's group chat (Messenger) before any agent appears in it.
+    bus.emit(None, "session_start", {"title": title, "emoji": meta.get("emoji") or "", "goal": goal,
+                                     "summary": summary,
+                                     "team": [{"id": s.id, "name": s.name, "role": s.goal[:80]} for s in specs]})
     bus.emit(None, "chat", {"text": f"Conductor: {summary or 'Plan ready.'} Spawning {len(specs)} agent(s): "
                                     + ", ".join(f'{s.name} ({s.worker})' for s in specs)})
 
@@ -139,13 +144,15 @@ async def run(bus: Bus, render_dir: Path, goal: str = "", workspace: str | None 
     try:
         async with async_playwright() as pw:
             browser = await launch_chrome(pw)
-            area = await screen_area(browser)
+            area = await layout.usable_area()
             native = bus.deck_viewer is not None
             windowed = [s for s in specs if s.worker in ("browser", "code", "checker")]
             needs_viewer = any(s.worker == "deck" for s in specs) and not native
             cells = grid(area, max(1, len(windowed) + (1 if needs_viewer else 0)))
             cell_of = {s.id: cells[i] for i, s in enumerate(windowed)}
             viewer_cell = cells[len(windowed)] if needs_viewer else None
+            if viewer_cell:
+                layout.place_native(bus, "deck", viewer_cell)
 
             async def run_one(spec: AgentSpec, cell: Rect | None) -> None:
                 nonlocal browser_cost

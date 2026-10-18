@@ -25,10 +25,40 @@ def strip_emoji(text: str) -> str:
 
 SPEAKERS = {"Hive", "Conductor"}
 
+# Texts stay short and scannable: one sentence per update, a few status emoji at the front only.
+ICON = {"added": "➕", "done": "✅", "question": "❓", "approval": "💳", "call": "📞", "warn": "⚠️",
+        "finish": "🏁", "ok": "👍", "live": "👀"}
+_WARN = re.compile(r"(?i)\b(couldn'?t|could not|failed|blocked|error|partial|unable|stuck|timed out)\b")
+
+
+def brief(text: Any, n: int = 120, first_sentence: bool = True) -> str:
+    """First sentence (or line) of an agent's text, emoji removed, capped at n characters."""
+    t = strip_emoji(str(text or ""))
+    t = re.sub(r"\s+", " ", t.split("\n")[0]).strip()
+    m = re.match(r"(.+?[.!?])\s+[A-Z]", t) if first_sentence else None
+    if m and len(m.group(1)) >= 12:
+        t = m.group(1)
+    t = t.rstrip(" ") if t.endswith("?") else t.rstrip(" .")
+    return t if len(t) <= n else t[: n - 1].rstrip(" ,;:") + "…"
+
+
+def tagged(icon_key: str, line: str) -> str:
+    return f"{ICON[icon_key]} {line}"
+
+
+def warn_or(line: str, text: str) -> str:
+    """Prefix ⚠️ when an update reports a failure or partial result; plain otherwise."""
+    return tagged("warn", line) if _WARN.search(text) else line
+
 
 def prefix(name: str, text: str, known: set[str] | frozenset[str] = frozenset()) -> str:
     """'Checker: …' — unless the text already starts with a speaker prefix ('Conductor: …')."""
     text = strip_emoji(text)
+    # Names can have spaces/digits ("Pricer 3", "Candidate Pricer"); don't double them.
+    while text.startswith(f"{name}: "):
+        text = text[len(name) + 2:]
+    if any(text.startswith(f"{k}: ") for k in known if " " in k):
+        return text
     m = re.match(r"^([A-Z][\w]{0,20}):\s", text)
     if m and (m.group(1) == name or m.group(1) in SPEAKERS or m.group(1) in known):
         return text
@@ -62,20 +92,20 @@ def question_from_event(agent: str, name: str, data: dict[str, Any], ts: float) 
 
 def format_question(q: Question) -> str:
     """Claude Code–style: numbered best options, then 'or tell me something else'."""
+    if q.kind == "call":  # dialing a real business: explicit YES only (like spending)
+        return f"{ICON['call']} {q.name}: {q.question.rstrip('?. ')}?\nReply YES or NO"
     if q.kind == "approval":
         what = q.question.rstrip("?. ")
         if q.amount is not None and "$" not in what:
             what = f"Approve ${q.amount:,.2f} for {what}"
-        return f"{q.name}: {what}? Reply YES to approve or NO."
-    lines = [f"{q.name}: {q.question}"]
+        return f"{ICON['approval']} {q.name}: {what}?\nReply YES or NO"
+    lines = [f"{ICON['question']} {q.name}: {brief(q.question, 200, first_sentence=False)}"]
     if q.options:
-        lines.append("")
         for i, opt in enumerate(q.options, 1):
             note = q.details[i - 1] if i - 1 < len(q.details) and q.details[i - 1] else ""
-            lines.append(f"{i}. {opt}" + (f" ({note})" if note else ""))
-        nums = [str(i) for i in range(1, len(q.options) + 1)]
-        pick = " or ".join(nums) if len(nums) <= 2 else ", ".join(nums[:-1]) + f" or {nums[-1]}"
-        lines += ["", f"Reply {pick}, or tell me something else."]
+            lines.append(f"{i}. {brief(opt, 60)}" + (f" ({brief(note, 50)})" if note else ""))
+        pick = "1 or 2" if len(q.options) == 2 else f"1–{len(q.options)}"
+        lines += ["", f"Reply {pick}, or type your own"]
     return "\n".join(lines)
 
 
@@ -98,7 +128,7 @@ def _price(s: str) -> str | None:
 
 def parse_reply(q: Question, text: str) -> Reply:
     t = text.strip()
-    if q.kind == "approval":
+    if q.kind in ("approval", "call"):
         if re.fullmatch(r"(?i)\s*yes[.!]*\s*", t):
             return Reply("YES")
         if re.fullmatch(r"(?i)\s*(no|nope|cancel|stop)[.!]*\s*", t):

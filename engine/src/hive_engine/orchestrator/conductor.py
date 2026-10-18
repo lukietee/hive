@@ -52,6 +52,10 @@ Rules: each goal must be concrete and self-contained (the agent sees nothing els
 If the workspace is served over HTTP, browser agents should use that URL for local pages."""
 
 
+# Chat title + emoji from the last plan (runs are exclusive, so one slot is enough).
+LAST_META: dict[str, str] = {}
+
+
 async def plan(goal: str, ws: Path | None, served_url: str | None, urls: list[str]) -> tuple[list[AgentSpec], str, str]:
     """Returns (specs, summary, source) where source is 'claude' or 'fallback'."""
     has_code = bool(ws and any(ws.rglob("*.js")) or ws and any(ws.rglob("*.html")))
@@ -66,6 +70,9 @@ async def plan(goal: str, ws: Path | None, served_url: str | None, urls: list[st
         except Exception as exc:
             log.warning("conductor plan failed: %s", exc)
     source = "claude"
+    LAST_META.clear()
+    if raw:
+        LAST_META.update(title=str(raw.get("title") or "").strip()[:40], emoji=str(raw.get("emoji") or "").strip()[:4])
     specs, summary = validate(raw or {})
     if not specs:
         specs, summary = validate(fallback_plan(goal, has_code, has_deck))

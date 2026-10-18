@@ -44,7 +44,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `highlight` | `{ "x", "y", "w", "h", "style": "circle" \| "box" \| "select" }` | Draw a circle, box or selection handles (fade out after 2.5s unless `"sticky": true`) |
 | `link` | `{ "from": [x,y], "to": [x,y], "text"? }` | Draw a line between two points (Checker conflicts) |
 | `needs_human` | `{ "question", "options": [..], "allow_other"?: true, "details"?: [..], "image"?, "kind"?: "choice" \| "approval", "amount"? }` — options are the agent's own 2–4 best choices, best first | Pulse the cursor; show the question card in the notch. `allow_other` (default `true`) adds an "Other…" button for a typed answer; `answer.choice` may then be any string (or an option number like `"1"`). iMessage: `details[i]` is a short note shown after option *i*; `image` (local path or URL, e.g. a screenshot) is attached before the question; `kind: "approval"` + `amount` asks for an explicit YES before spending |
-| `chat` | `{ "text" }` | (For the chat relay; the app may show it in the notch) |
+| `chat` | `{ "text", "image"? }` | (For the chat relay; the app may show it in the notch.) Optional `image` (local path or URL) is sent as an attachment in the iMessage chat right after the text |
 | `agent_done` | `{ "summary"? }` | Cursor flies back into the notch and disappears |
 | `swarm_summary` | `{ "title", "lines": [..] }` | Show the summary card in the notch |
 | `countdown` | `{ "seconds_left" }` | Update the notch timer |
@@ -52,6 +52,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `deck_loaded` | `{ "slides", "base", "version" }` | Deck Viewer loads the slide PNGs from `base` (e.g. `http://127.0.0.1:8766/...`) |
 | `deck_focus` | `{ "slide", "box": [x, y, w, h], "label" }` | Deck Viewer scrolls to and zooms the slide; box is in **fractions of the slide** (0–1), for the cursor + selection handles |
 | `deck_slide_updated` | `{ "slide", "version", "render_ms" }` | Deck Viewer crossfades to the re-rendered slide PNG |
+| `window_place` | `{ "window": "deck" \| "call", "x", "y", "w", "h" }` | Moves/resizes the Deck Viewer or Call window into the engine's layout cell (now, or when it next appears) |
 | `call_started` | `{ "call_id", "to", "label", "mode": "live"\|"fake" }` | Call window appears (caller ID = label + formatted number) |
 | `call_state` | `{ "call_id", "state": "ringing"\|"connected"\|"ended" }` | Status line: Ringing… → live timer → Call ended |
 | `call_transcript` | `{ "call_id", "speaker": "agent"\|"them", "text", "final" }` | Caption bubble; a non-final line is replaced by the next update from the same speaker |
@@ -102,6 +103,20 @@ Frames are "latest wins" per viewer, so a slow phone drops frames instead of lag
 - **Out:** `chat`, `agent_done` (with a summary), `swarm_summary`, `call_ended` ("Call with Bakery ended. <summary>") → `"Name: …"` texts, batched over `HIVE_MESSENGER_BATCH_S` (2s). `agent_status` and cursor events are never texted. Emoji are stripped.
 - **Questions:** `needs_human` → numbered options + "Reply 1 or 2, or tell me something else." The reply `1`/`2`/the option text maps to that option; anything else is mapped by Claude when it clearly picks an option, otherwise sent as `answer {choice: <text>, free_text: true}`. Approvals accept only `YES` / `NO`.
 - **In:** `@Name …` → `say {agent}` (or answers that agent's pending question); `@everyone …` → `say {}`; `@Web show me` → reply with the live view URL (`HIVE_PUBLIC_LIVE_URL`, else `http://<LAN IP>:8766/live/`); `start` / `start party` / `pause` / `resume` → those commands; unaddressed text answers the latest pending question, else goes to `say {}`.
+
+### Sessions and group chats (dedicated Photon line)
+On a **dedicated** iMessage line (Photon `GET /platforms/imessage` → `mode: "dedicated"`), every run gets its own chat:
+
+| type | data | Messenger behavior |
+|---|---|---|
+| `session_start` | `{ "title", "goal"?, "summary"?, "members"?: ["+1…"], "team"?: [{id, name, role}] }` (agent `null`) | Opens the run's chat: a **group** with the owner + `members` + `HIVE_GROUP_MEMBERS` (nobody else), or the owner's 1:1 on the dedicated line when there are no members. Posts `Hive: New run: <title>` (+ goal). |
+
+- **Emit it first** (before the run's `agent_spawn`s), e.g. `bus.emit(None, "session_start", {"title": "Maya's Surprise Party", "goal": "...", "members": [...]})`. Without it, a `start` texted by the owner opens a session titled after the scenario, and otherwise the first non-replayed `agent_spawn` after idle opens `Hive run 9:47 PM`.
+- **Joining:** each `agent_spawn` is announced, batched over `HIVE_ANNOUNCE_S` (1.5s): `Hive added Cake: calling the bakery`. The text after the colon is `agent_spawn.data.goal` / `role` / `task` / `text`, else the agent's first `agent_status.text`.
+- **Leaving:** `agent_done` → `Name: Done.` (+ summary). `swarm_summary` closes the session; the next run opens a new chat.
+- **Inbound:** only the owner steers (from the group, their 1:1 on either line); other group members' texts are logged, not acted on. Replies always go to the active chat.
+- **State:** `engine/state/messenger_session.json` (`space_id`, `title`, `goal`, `members`, `done`), so a restarted Messenger rejoins the open chat.
+- **Limits (Photon REST):** a chat with exactly the same participants is reused (no second group with the same people), and REST can't rename a group or set its photo (spectrum-ts can), so the title appears as the header text, not the chat name. A real group needs at least one member besides the owner. On a shared line all of this is skipped and everything stays in the 1:1 thread.
 
 ## Agent memory (text side)
 `engine/state/messages/<agent>.jsonl` (gitignored with `engine/state/`; `HIVE_STATE_DIR` / `HIVE_MEMORY_DIR` override), via `hive_engine.memory.append(agent, kind, text)` / `read(agent)`: one `{ts, agent, kind: "text_in"|"text_out", text}` per line. When the owner texts `@Cake …` after that agent has finished, the Messenger answers with Claude from this text memory **plus** `CallMemory().context_text("cake")` (below), so a phone call carries over into text.

@@ -66,6 +66,12 @@
                         .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
   function add(m) {
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+    if (m.from === 'system') {  // group events ("New group: …"), like iMessage's centered gray lines
+      const t = document.createElement('div'); t.className = 'time'; t.textContent = m.text;
+      log.appendChild(t); lastFrom = null; lastTs = m.ts;
+      if (atBottom) log.scrollTop = log.scrollHeight;
+      return;
+    }
     if (m.ts - lastTs > 300) {
       const t = document.createElement('div'); t.className = 'time';
       t.textContent = new Date(m.ts * 1000).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
