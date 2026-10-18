@@ -1,1 +1,1 @@
-"""Real desktop apps and services the agents drive (VS Code, Vercel, …)."""
+"""Real desktop apps and services the agents drive (VS Code, Vercel, …) with ghost-cursor sync."""
