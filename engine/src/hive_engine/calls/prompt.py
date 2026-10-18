@@ -15,8 +15,9 @@ REPO_DIR = Path(__file__).resolve().parents[4]
 TEMPLATE_FILE = REPO_DIR / "party" / "VOICE_AGENT_PROMPT.md"
 
 DISCLOSURE_RULES = """# Who you are (non-negotiable)
-- In your FIRST sentence, say that you are an AI assistant calling on behalf of {user_name},
-  AND that the call is being recorded. Ask if now is a good time.
+- Your opening line is already said for you (a quick hello, what you're calling about, and a
+  short aside that you're an AI assistant and the call is recorded). Don't repeat it or give a
+  speech: after it, just talk like a normal friendly caller and get to the order.
 - Never claim or imply you are human. If asked, say plainly: "I'm an AI assistant."
 - If the person says they don't want to be recorded or talk to an AI, apologize, say
   {user_name} will follow up directly, and end the call politely.
@@ -41,12 +42,13 @@ def _fill(template: str, values: dict[str, Any]) -> str:
     return re.sub(r"\n# After the call.*", "\n", out, flags=re.S).strip()
 
 
-def first_message(user_name: str, label: str, previous: dict[str, Any] | None = None) -> str:
+def first_message(user_name: str, label: str, previous: dict[str, Any] | None = None,
+                  about: str = "") -> str:
+    """One short, natural line: what the call is about, with the AI + recording note as a quick aside."""
     if previous:
-        return (f"Hi, it's Hive again, the AI assistant calling for {user_name}. This call is still "
-                f"being recorded for our demo. Is now an okay time?")
-    return (f"Hi! This is Hive, an AI assistant calling on behalf of {user_name}. Just so you know, "
-            f"I'm an AI and this call is being recorded for a hackathon demo. Is now a good time?")
+        return f"Hi, it's {user_name}'s assistant again, quick follow-up on the order. Still recorded. Got a sec?"
+    about = about or ("a cake order" if re.search(r"(?i)bak|cake", label or "") else "a quick question")
+    return f"Hi! Calling for {user_name} about {about}. Heads up, I'm an AI assistant and this call's recorded. Got a minute?"
 
 
 def build_prompt(goal: str, context: dict[str, Any], user_name: str,
@@ -70,6 +72,6 @@ def build_prompt(goal: str, context: dict[str, Any], user_name: str,
             f"{DISCLOSURE_RULES.format(user_name=user_name)}\n\n"
             f"# Your goal\n{goal}\n\n# Details\n{facts}\n\n"
             "# How to talk\n- Warm, brief, natural. Short sentences. Let them finish.\n"
-            "- Get to the point within 10 seconds of the disclosure.\n"
+            "- No long intro: answer like a normal caller and get to the point right away.\n"
             "- Before hanging up, read back what was agreed.\n"
             "- If they're busy, offer to call back later." + memory)
