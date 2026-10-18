@@ -103,6 +103,8 @@ class Bus:
         self.running = name
         self.agents.clear()
         self.history.clear()
+        # Clients drop any cursors/windows left over from a run that ended without cleaning up.
+        self.emit(None, "run_reset", {"scenario": name})
         try:
             return await factory()
         finally:

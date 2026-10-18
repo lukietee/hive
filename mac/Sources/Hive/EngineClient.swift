@@ -88,6 +88,7 @@ final class EngineClient {
     private func handleFailure(of t: URLSessionWebSocketTask) {
         guard task === t else { return }
         store?.connected = false
+        store?.reset()  // the engine went away mid-run: its agents' cursors and windows go with it
         task = nil
         guard !stopped, !reconnectPending else { return }
         reconnectPending = true

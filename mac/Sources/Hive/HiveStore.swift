@@ -98,6 +98,7 @@ final class HiveStore: ObservableObject {
         }
 
         switch type {
+        case "run_reset": reset()
         case "agent_spawn": spawn(agentId, d)
         case "agent_status": status(agentId, d)
         case "moving_to": move(agentId, d)
@@ -301,6 +302,8 @@ final class HiveStore: ObservableObject {
 
     private func swarmSummary(_ d: [String: Any]) {
         let lines = (d["lines"] as? [Any])?.map { CleanText.strip("\($0)") } ?? []
+        // The run is over: the Deck Viewer slides away after a moment so the screen is clean.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.deck.reset() }
         withAnimation(.spring(response: 0.5, dampingFraction: 0.78)) {
             summary = SummaryCard(title: CleanText.strip((d["title"] as? String) ?? "Done"), lines: lines)
             question = nil

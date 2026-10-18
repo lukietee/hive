@@ -48,6 +48,7 @@ This file is shared by the Mac app (`mac/`), the engine (`engine/`) and any chat
 | `agent_done` | `{ "summary"? }` | Cursor flies back into the notch and disappears |
 | `swarm_summary` | `{ "title", "lines": [..] }` | Show the summary card in the notch |
 | `countdown` | `{ "seconds_left" }` | Update the notch timer |
+| `run_reset` | `{ "scenario" }` (agent `null`) | A new run is starting: drop every cursor, highlight, question and window left from earlier runs |
 | `budget` | `{ "spent", "total", "caps": { agent: cap } }` | Update the notch budget bar (party demo) |
 | `deck_loaded` | `{ "slides", "base", "version" }` | Deck Viewer loads the slide PNGs from `base` (e.g. `http://127.0.0.1:8766/...`) |
 | `deck_focus` | `{ "slide", "box": [x, y, w, h], "label" }` | Deck Viewer scrolls to and zooms the slide; box is in **fractions of the slide** (0–1), for the cursor + selection handles |
