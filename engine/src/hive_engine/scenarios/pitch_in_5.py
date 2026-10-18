@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 import re
 import shutil
 import time
@@ -39,6 +40,7 @@ from pptx.dml.color import RGBColor
 from .. import conductor
 from ..agent import Agent
 from ..browser_agent import BrowserAgent, Rect, launch_chrome, open_window, page_screen_rect
+from ..apps.deploy import vercel_deploy
 from ..layout import check_bounds, grid, place_native, usable_area
 from ..bus import Bus
 from ..deck_agent import DeckAgent
@@ -397,8 +399,27 @@ async def fixer_flow(f: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, 
     f.done(f"{r['pass']}/{r['tests']} tests passing")
 
 
+VERCEL_PROJECT = os.environ.get("HIVE_VERCEL_PROJECT", "whisk-demo")
+
+
 # ---- 🔵 Web ----------------------------------------------------------------------------------------
-async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts) -> None:
+async def deploy_live(w: TrackedBrowserAgent, site: Path, h: Handoffs, out: dict, expect: str | None = None,
+                      first: bool = True) -> str | None:
+    """Ships the site to Vercel for real; returns the public URL, or None (stay on the local server)."""
+    w.status("Deploying to Vercel…" if first else "Redeploying to Vercel…", None)
+    if first:
+        w.chat("Deploying to Vercel…")
+    r = await vercel_deploy(site, project=VERCEL_PROJECT, timeout=90.0, expect=expect)
+    out.setdefault("deploys", []).append({"ok": r.ok, "url": r.url, "seconds": r.seconds, "error": r.error,
+                                          "notes": r.notes})
+    if not r.ok:
+        w.chat(f"Vercel deploy didn't go through ({r.error}). Staying on the local preview.")
+        return None
+    out["live_url"] = r.url
+    return r.url
+
+
+async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, out: dict | None = None) -> None:
     p, pace = w.page, opts.pace
     assert p
     site = ws / "site"
@@ -494,9 +515,38 @@ async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts) ->
     status = await p.locator("#waitlist-status").inner_text()
     w.chat(f"Waitlist wired and tested: “{status}”")
     w.status("Waitlist works", 0.7)
-    h.url = f"{WORLD_URL}/site/"
+
+    # 5b. ship it: a real production deploy, then the same click-through on the live site
+    out = out if out is not None else {}
+    live = await deploy_live(w, site, h, out)
+    h.url = live or f"{WORLD_URL}/site/"
     h.url_ready.set()
-    w.chat(f"Site is up at {h.url} @Social @Deck")
+    if live:
+        w.chat(f"Live at {live} @Social @Deck")
+        await p.goto(live, wait_until="domcontentloaded")
+        await asyncio.sleep(0.6 * pace)
+        await w.point_at(p.locator(".hero-title"), style="select", label="live on Vercel")
+        await w.click(p.locator('nav a[href="#pricing"]'), "Pricing")
+        await asyncio.sleep(0.4 * pace)
+        await w.click(p.locator('nav a[href="#waitlist"]'), "Join")
+        await w.type(p.locator("#waitlist-email"), "first@ucla.edu", delay_ms=opts.type_delay * 2)
+        await w.click(p.locator("#waitlist-form button"), "Join the waitlist")
+        try:
+            await p.wait_for_function("() => document.getElementById('waitlist-status').textContent.length > 0",
+                                      timeout=5000)
+        except Exception:
+            pass
+        w.status("Live on Vercel", 0.75)
+    else:
+        w.chat(f"Site is up at {h.url} @Social @Deck")
+
+    async def reload() -> None:  # from here on the page may be the live URL: redeploy, then load it
+        if live:
+            await deploy_live(w, site, h, out, expect=h.price + "<span>" if h.price else None, first=False)
+            await p.goto(f"{live}/?v={int(time.time())}", wait_until="domcontentloaded")
+        else:
+            await p.reload()
+        await asyncio.sleep(0.35 * pace)
 
     # 6. price decision from Checker
     if await wait_for(h.price_resolved, 60) and h.price and h.price != "$39":
@@ -507,7 +557,7 @@ async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts) ->
         await reload()
         await p.locator("#pricing").scroll_into_view_if_needed()
         await w.point_at(p.locator(".plan .price").first, style="select", label=f"{h.price}/mo ✓")
-        w.chat(f"Pricing updated to {h.price}/mo.")
+        w.chat(f"Pricing updated to {h.price}/mo" + (f" and redeployed to {live}." if live else "."))
         h.price_applied.set()
 
     # 7. screenshots for the deck (slide 7 pricing table, slide 5 landing page)
@@ -520,7 +570,7 @@ async def web_flow(w: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts) ->
     await p.screenshot(path=str(h.site_png))
     h.site_shot.set()
     w.status("Landing page done", 1.0)
-    w.done("Hero, logo, pricing and waitlist finished")
+    w.done(f"Site live at {live}" if live else "Hero, logo, pricing and waitlist finished")
 
 
 # ---- 🟡 Deck ---------------------------------------------------------------------------------------
@@ -776,7 +826,7 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
             await asyncio.gather(fixer.enter(0.0), web.enter(0.25), social.enter(0.5))
             results = await asyncio.gather(
                 fixer_flow(fixer, ws, h, opts, out),
-                web_flow(web, ws, h, opts),
+                web_flow(web, ws, h, opts, out),
                 deck_flow(deck, h, opts, viewer_origin, out),
                 social_flow(social, ws, h, opts, out),
                 checker_flow(checker, web, deck, h, opts, out),
@@ -800,7 +850,7 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
             mins, secs = divmod(clock["left"], 60)
             bus.emit(None, "swarm_summary", {"title": f"Pitch ready with {mins}:{secs:02d} to spare", "lines": [
                 f"🔴 Fixer: {ta.get('pass', '?')}/{ta.get('tests', '?')} tests passing",
-                "🔵 Web: hero, logo, pricing and waitlist fixed",
+                ("🔵 Web: live at " + out["live_url"]) if out.get("live_url") else "🔵 Web: hero, logo, pricing and waitlist fixed",
                 f"🟡 Deck: {len(deck.filled)} boxes filled on slides 1, 3, 5, 6, 7, 10",
                 f"🟣 Social: launch post drafted ({len(h.post or '')} chars), waiting for your OK",
                 f"⚪ Checker: price {h.price or '?'}/mo matches everywhere",
