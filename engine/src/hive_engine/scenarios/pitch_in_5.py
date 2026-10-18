@@ -46,8 +46,9 @@ from ..bus import Bus
 from ..deck_agent import DeckAgent
 from ..http_server import HTTP_PORT
 from . import pitch_content as content
-from .pitch_world import (WORLD_URL, edit, find_line, image_size, make_workspace, market_chart, section,
-                          start_world_server, svg_to_png)
+from ..apps.vscode import VSCode
+from .pitch_world import (WORLD_URL, edit, find_line, image_size, make_workspace, market_chart, run_node_tests,
+                          section, start_world_server, svg_to_png)
 
 VIEWER_URL = f"http://127.0.0.1:{HTTP_PORT}/viewer/index.html"
 REQUEST = ("Our pitch starts in 5 minutes and nothing is finished. Fix the product's failing test and finish "
@@ -321,88 +322,105 @@ FEATURES = [
 ]
 
 
-async def run_tests(f: TrackedBrowserAgent) -> dict:
-    assert f.page
-    await f.click(f.page.locator("#run"), "Run tests")
-    await f.page.wait_for_function("() => window.__lastTest", timeout=60_000)
-    return await f.page.evaluate("() => window.__lastTest")
+class EditorAgent(Agent):
+    """An agent that works in the real VS Code window (Fixer): ghost cursor over the editor."""
+
+    def __init__(self, bus: Bus, agent_id: str, vs: VSCode, dwell: float = 0.0, glide_ms: int = 350) -> None:
+        super().__init__(bus, agent_id)
+        self.vs = vs
+        self.dwell = dwell
+        self.glide_ms = glide_ms
+        self.click_errors: list[float] = []   # no DOM clicks to verify in VS Code
+
+    async def enter(self, delay: float = 0.0) -> None:
+        await asyncio.sleep(delay)
+        self.spawn()
+        x, y, _w, _h = await self.vs.frame()
+        await self.move_to(x + 90, y + 80, 650, "on it")
+
+    async def close(self) -> None:
+        pass
 
 
-async def fixer_flow(f: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, out: dict) -> None:
-    p, pace = f.page, opts.pace
-    assert p
-    sig = ws / SIGNUP
+def terminal_png(result: dict, path: Path, title: str = "npm test") -> Path:
+    """The test run as a terminal-style PNG (for the deck), drawn from the real node --test output."""
+    from PIL import Image, ImageDraw, ImageFont
 
-    async def show(path: str, added: list[int] | None = None, hot: list[int] | None = None) -> None:
-        await p.evaluate("([p, a, h]) => hive.loadFile(p, a, h)", [path, added or [], hot or []])
+    lines = [f"$ {title}"] + result.get("output", "").splitlines()[:16]
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", 26)
+    except OSError:
+        font = ImageFont.load_default()
+    w, lh = 1400, 40
+    img = Image.new("RGB", (w, 60 + lh * len(lines)), (30, 30, 30))
+    d = ImageDraw.Draw(img)
+    for i, line in enumerate(lines):
+        color = ((110, 220, 120) if line.startswith("✔") else (240, 110, 100) if line.startswith("✖") else
+                 (230, 200, 90) if line.startswith("⚠") else (200, 200, 200))
+        d.text((30, 30 + i * lh), line, font=font, fill=color)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(path)
+    return path
 
-    f.status("Running the test suite", 0.05)
-    r = await run_tests(f)
+
+async def run_tests(f: EditorAgent, product: Path, label: str = "npm test") -> dict:
+    """`npm test` typed into VS Code's terminal (visible); the same suite run as a subprocess gives the
+    exact counts (node --test is deterministic here)."""
+    await f.vs.run_in_terminal(f, "npm test", cwd=product, label=label, glide_ms=f.glide_ms)
+    r = await asyncio.to_thread(run_node_tests, product)
+    await asyncio.sleep(max(1.2, f.dwell))  # let the terminal output land on screen
+    return r
+
+
+async def fixer_flow(f: EditorAgent, ws: Path, h: Handoffs, opts: Opts, out: dict) -> None:
+    vs, pace = f.vs, opts.pace
+    product = ws / "product"
+    sig, tests = ws / SIGNUP, ws / TESTS
+
+    f.status("Running the test suite in VS Code", 0.05)
+    r = await run_tests(f, product)
     out["tests_before"] = {k: r[k] for k in ("pass", "fail", "todo", "tests")}
     f.status(f"{r['fail']} failing · reading the stack trace", 0.15)
     f.chat(f"Test 3 is failing: {r['error'] or 'see terminal'}")
-    await f.point_at(p.locator("#term .f").first, style="box", label="TypeError")
-    await asyncio.sleep(0.8 * pace)
+    # the failing test, then the line that throws
+    t_ln = find_line(tests, "without a referral code")
+    await vs.point_at_line(f, tests, t_ln, "failing test", glide_ms=f.glide_ms, hold_s=0.6 * pace)
 
     # 1. the null-referrer bug
-    await f.click(p.locator(f'.file[data-path="{SIGNUP}"]'), "signup.js")
     ln = find_line(sig, "creditReferrer(referrer);")
-    await show(SIGNUP, hot=[ln - 1, ln])
-    await f.click(p.locator(f"#L{ln}"), "creditReferrer(null) 💥")
-    await asyncio.sleep(0.5 * pace)
-    fix = "if (referrer) creditReferrer(referrer);"
-    await f.typing(*f.pos, fix, 200)  # type: ignore[misc]
-    changed = edit(sig, "  const referrer = db.findUserByReferralCode(referralCode);\n  creditReferrer(referrer);",
-                   "  const referrer = referralCode ? db.findUserByReferralCode(referralCode) : null;\n"
-                   "  if (referrer) creditReferrer(referrer);")
-    await show(SIGNUP, added=changed)
-    await p.evaluate("p => hive.markDirty(p)", SIGNUP)
+    await vs.point_at_line(f, sig, ln - 1, "creditReferrer(null)", end=ln, glide_ms=f.glide_ms, hold_s=0.5 * pace)
+    await vs.type_edit(f, sig, "  const referrer = db.findUserByReferralCode(referralCode);\n  creditReferrer(referrer);",
+                       "  const referrer = referralCode ? db.findUserByReferralCode(referralCode) : null;\n"
+                       "  if (referrer) creditReferrer(referrer);", "null-referrer fix", glide_ms=f.glide_ms)
     f.status("Patched the null-referrer bug · re-running", 0.35)
-    await asyncio.sleep(0.6 * pace)
-    r = await run_tests(f)
+    await asyncio.sleep(0.4 * pace)
+    r = await run_tests(f, product)
     f.chat(f"Null-referrer bug fixed ✓ {r['pass']}/{r['tests']} passing. Finishing the {r['todo']} TODO features.")
 
     # 2. the half-written features
-    for i, (needle, label, old, new) in enumerate(FEATURES):
-        ln = find_line(sig, needle)
-        await show(SIGNUP, hot=[ln])
-        await f.click(p.locator(f"#L{ln}"), label)
-        await f.typing(*f.pos, new.strip().splitlines()[-1].strip()[:48], 200)  # type: ignore[misc]
-        await asyncio.sleep(0.4 * pace)
-        changed = edit(sig, old, new)
-        await show(SIGNUP, added=changed)
+    for i, (_needle, label, old, new) in enumerate(FEATURES):
+        await vs.type_edit(f, sig, old, new, label, glide_ms=f.glide_ms)
         f.status(f"Finished {label}", 0.45 + 0.1 * i)
-        await asyncio.sleep(0.5 * pace)
+        await asyncio.sleep(0.4 * pace)
 
     # 3. turn the todo tests back on
-    tests = ws / TESTS
-    await f.click(p.locator(f'.file[data-path="{TESTS}"]'), "signup.test.js")
-    changed: list[int] = []
     for todo in (', { todo: "Builder: student plan not implemented yet" }',
                  ', { todo: "Builder: session token not implemented yet" }'):
-        changed += edit(tests, todo, "")
-    await show(TESTS, added=changed)
-    await p.evaluate("p => hive.markDirty(p)", TESTS)
-    await asyncio.sleep(0.5 * pace)
+        await vs.type_edit(f, tests, todo, "", "enable test", glide_ms=f.glide_ms)
+    await asyncio.sleep(0.4 * pace)
     f.status("Running the full suite", 0.85)
-    r = await run_tests(f)
+    r = await run_tests(f, product)
     out["tests_after"] = {k: r[k] for k in ("pass", "fail", "todo", "tests")}
     ok = r["fail"] == 0 and r["todo"] == 0 and r["pass"] == r["tests"]
     f.status(f"{r['pass']}/{r['tests']} tests passing" + (" ✓" if ok else ""), 1.0)
     f.chat(f"{r['pass']}/{r['tests']} tests passing ✓ @Deck screenshot's ready for slide 5." if ok
            else f"Tests: {r['pass']} pass, {r['fail']} fail, {r['todo']} todo")
 
-    await show(SIGNUP)
-    h.tests_png = ws / "shots" / "tests.png"
-    await p.screenshot(path=str(h.tests_png))
+    h.tests_png = terminal_png(r, ws / "shots" / "tests.png")
     h.tests_shot.set()
     f.done(f"{r['pass']}/{r['tests']} tests passing")
 
 
-VERCEL_PROJECT = os.environ.get("HIVE_VERCEL_PROJECT", "whisk-demo")
-
-
-# ---- 🔵 Web ----------------------------------------------------------------------------------------
 async def deploy_live(w: TrackedBrowserAgent, site: Path, h: Handoffs, out: dict, expect: str | None = None,
                       first: bool = True) -> str | None:
     """Ships the site to Vercel for real; returns the public URL, or None (stay on the local server)."""
@@ -778,12 +796,18 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
             cell = lambda col, row: cells[row * 2 + col]  # noqa: E731
             place_native(bus, "deck", cell(0, 1))
 
-            fixer, web, social = (TrackedBrowserAgent(bus, a, opts.dwell, opts.glide_ms)
-                                  for a in ("fixer", "web", "social"))
-            await fixer.open(browser, cell(0, 0), f"{WORLD_URL}/hive/editor.html")
+            # Fixer works in a real VS Code window on the workspace copy; Web and Social in Chrome.
+            vs = VSCode()
+            await vs.open(ws, cell(0, 0))
+            fixer = EditorAgent(bus, "fixer", vs, opts.dwell, opts.glide_ms)
+            web, social = (TrackedBrowserAgent(bus, a, opts.dwell, opts.glide_ms) for a in ("web", "social"))
             await web.open(browser, cell(1, 0), f"{WORLD_URL}/site/index.html")
             await social.open(browser, cell(1, 1), f"{WORLD_URL}/hive/composer.html")
-            out["layout_warnings"] = await check_bounds([fixer, web, social])
+            out["layout_warnings"] = await check_bounds([web, social])
+            vx, vy, vw, vh = await vs.frame()
+            want = cell(0, 0)
+            if (vx, vy, vw, vh) != (want.left, want.top, want.width, want.height):
+                out["layout_warnings"].append(f"VS Code at {(vx, vy, vw, vh)}, wanted {want}")
             deck = PitchDeck(bus, ws / "deck" / "pitch.pptx", render_dir)
             deck.step_pause = 0.8 * opts.dwell
             checker = Agent(bus, "checker")
@@ -858,6 +882,7 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
             await asyncio.sleep(keep_open)
             for a in (fixer, web, social):
                 await a.close()
+            await vs.close()
             if vctx:
                 await vctx.close()
             await browser.close()
