@@ -38,8 +38,6 @@ And here's another example of HIVE organizing a birthday party by calling local 
 
 ## 1:20 Always in control
 
-And if anything goes wrong, one word stops everything.
-
-Hive. Your team, on your computer, from anywhere.
+And if you ever change your mind, just text "cancel" and every agent stops right where it is. So wherever you are, you've got a whole team working on your computer for you. That's HIVE.
 
 *Show: you text "CANCEL", every window closes, the notch collapses.*
