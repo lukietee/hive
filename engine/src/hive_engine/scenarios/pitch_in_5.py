@@ -798,19 +798,25 @@ async def instagram_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Op
             ig = await InstagramSession.open(pw, s, rect)
             await ig.draft(image, caption)
             out["instagram"]["stage"] = "caption"
-            s.chat("Instagram post is ready to share. Waiting for your OK.")
-            if opts.auto_human:  # rehearsals never publish
+            autopost = os.environ.get("HIVE_INSTAGRAM_AUTOPOST", "") == "1"
+            if autopost:
+                # Opt-in (e.g. a private demo account): share without asking.
+                choice, approved = "post", True
+            else:
+                s.chat("Instagram post is ready to share. Waiting for your OK.")
+            if opts.auto_human and not autopost:  # rehearsals never publish
                 async def auto() -> None:
                     await asyncio.sleep(2.0)
                     s.answer("Don't post")
                 asyncio.create_task(auto())
-            try:
-                choice = await s.ask_human("Post this to Instagram?", ["Post", "Don't post"],
-                                           timeout=90, kind="post")
-            except asyncio.TimeoutError:
-                choice = None
-            approved = (not opts.auto_human and
-                        str(choice or "").strip().lower() in ("yes", "y", "post", "approve", "share"))
+            if not autopost:
+                try:
+                    choice = await s.ask_human("Post this to Instagram?", ["Post", "Don't post"],
+                                               timeout=90, kind="post")
+                except asyncio.TimeoutError:
+                    choice = None
+                approved = (not opts.auto_human and
+                            str(choice or "").strip().lower() in ("yes", "y", "post", "approve", "share"))
             out["instagram"]["approved"] = approved
             if approved:
                 url = await ig.share()
