@@ -769,8 +769,72 @@ async def social_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts,
     (ws / "social" / "post.md").write_text((h.post or post) + "\n")
     out["post"] = h.post
     h.social_saved.set()
-    s.status(f"Post drafted ({len(h.post or '')} chars), waiting for your OK", 1.0)
-    s.done("Launch post drafted (not posted)")
+    if os.environ.get("HIVE_INSTAGRAM", "1") == "0":
+        s.status(f"Post drafted ({len(h.post or '')} chars), waiting for your OK", 1.0)
+        s.done("Launch post drafted (not posted)")
+        return
+    await instagram_flow(s, ws, h, opts, out)
+
+
+async def instagram_flow(s: TrackedBrowserAgent, ws: Path, h: Handoffs, opts: Opts, out: dict) -> None:
+    """Real post on Instagram (agents' HiveAgentsChrome profile), only after an explicit human YES.
+    The composer window closes first so the Instagram window takes the same grid cell."""
+    from ..apps.instagram import InstagramError, InstagramSession, clean_caption, make_square
+
+    rect = None
+    try:
+        b = (await s.cdp.send("Browser.getWindowBounds", {"windowId": s.window_id}))["bounds"]
+        rect = Rect(b["left"], b["top"], b["width"], b["height"])
+    except Exception:
+        pass
+    caption = clean_caption(h.post or "")
+    image = make_square(ws / "social" / "launch.png", price=h.price or "$29")
+    out["instagram"] = {"caption": caption, "image": str(image)}
+    await s.close()                      # the composer window; the Social cursor moves to Instagram
+    s.status("Opening Instagram", 0.5)
+    ig = None
+    try:
+        async with async_playwright() as pw:
+            ig = await InstagramSession.open(pw, s, rect)
+            await ig.draft(image, caption)
+            out["instagram"]["stage"] = "caption"
+            s.chat("Instagram post is ready to share. Waiting for your OK.")
+            if opts.auto_human:  # rehearsals never publish
+                async def auto() -> None:
+                    await asyncio.sleep(2.0)
+                    s.answer("Don't post")
+                asyncio.create_task(auto())
+            try:
+                choice = await s.ask_human("Post this to Instagram?", ["Post", "Don't post"],
+                                           timeout=90, kind="post")
+            except asyncio.TimeoutError:
+                choice = None
+            approved = (not opts.auto_human and
+                        str(choice or "").strip().lower() in ("yes", "y", "post", "approve", "share"))
+            out["instagram"]["approved"] = approved
+            if approved:
+                url = await ig.share()
+                out["instagram_url"] = url
+                s.chat(f"Posted to Instagram: {url}" if url else "Posted to Instagram.")
+                s.status("Posted to Instagram", 1.0)
+                s.done("Launch post is live on Instagram")
+            else:
+                await ig.discard()
+                s.chat("Not posting. I discarded the Instagram draft.")
+                s.status("Instagram draft discarded (not posted)", 1.0)
+                s.done("Launch post drafted (not posted)")
+            await asyncio.sleep(2.0)
+            await ig.close()
+    except InstagramError as exc:
+        out["instagram"]["error"] = str(exc)
+        s.chat(f"Couldn't post to Instagram: {exc}")
+        s.status("Post drafted, Instagram unavailable", 1.0)
+        s.done("Launch post drafted (not posted)")
+        if ig:
+            try:
+                await ig.close()
+            except Exception:
+                pass
 
 
 # ---- countdown + orchestration --------------------------------------------------------------------
@@ -898,12 +962,17 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
                 f"🔴 Fixer: {ta.get('pass', '?')}/{ta.get('tests', '?')} tests passing",
                 ("🔵 Web: live at " + out["live_url"]) if out.get("live_url") else "🔵 Web: hero, logo, pricing and waitlist fixed",
                 f"🟡 Deck: {len(deck.filled)} boxes filled on slides 1, 3, 5, 6, 7, 10",
-                f"🟣 Social: launch post drafted ({len(h.post or '')} chars), waiting for your OK",
+                ("🟣 Social: launch post live on Instagram" if out.get("instagram_url") or
+                 (out.get("instagram") or {}).get("approved") else
+                 f"🟣 Social: launch post drafted ({len(h.post or '')} chars), not posted"),
                 f"⚪ Checker: price {h.price or '?'}/mo matches everywhere",
             ] + ([f"⚠️ {len(errors)} agent error(s)"] if errors else [])})
             await asyncio.sleep(keep_open)
             for a in (fixer, web, social):
-                await a.close()
+                try:
+                    await a.close()
+                except Exception:
+                    pass  # Social's Instagram window is already closed
             await vs.close()
             if vctx:
                 await vctx.close()

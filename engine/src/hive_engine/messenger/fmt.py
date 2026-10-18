@@ -27,7 +27,7 @@ SPEAKERS = {"Hive", "Conductor"}
 
 # Texts stay short and scannable: one sentence per update, a few status emoji at the front only.
 ICON = {"added": "➕", "done": "✅", "question": "❓", "approval": "💳", "call": "📞", "warn": "⚠️",
-        "finish": "🏁", "ok": "👍", "live": "👀"}
+        "finish": "🏁", "ok": "👍", "live": "👀", "post": "📸"}
 _WARN = re.compile(r"(?i)\b(couldn'?t|could not|failed|blocked|error|partial|unable|stuck|timed out)\b")
 
 
@@ -92,6 +92,8 @@ def question_from_event(agent: str, name: str, data: dict[str, Any], ts: float) 
 
 def format_question(q: Question) -> str:
     """Claude Code–style: numbered best options, then 'or tell me something else'."""
+    if q.kind == "post":  # publishing to a real social account: explicit YES only
+        return f"{ICON['post']} {q.name}: {q.question.rstrip('?. ')}?\nReply YES or NO"
     if q.kind == "call":  # dialing a real business: explicit YES only (like spending)
         return f"{ICON['call']} {q.name}: {q.question.rstrip('?. ')}?\nReply YES or NO"
     if q.kind == "approval":
@@ -128,7 +130,7 @@ def _price(s: str) -> str | None:
 
 def parse_reply(q: Question, text: str) -> Reply:
     t = text.strip()
-    if q.kind in ("approval", "call"):
+    if q.kind in ("approval", "call", "post"):
         if re.fullmatch(r"(?i)\s*yes[.!]*\s*", t):
             return Reply("YES")
         if re.fullmatch(r"(?i)\s*(no|nope|cancel|stop)[.!]*\s*", t):

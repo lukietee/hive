@@ -390,8 +390,8 @@ class Messenger:
     async def _answer(self, q: Question, text: str) -> None:
         r = parse_reply(q, text)
         if r.rejected:
-            need = "to place the call" if q.kind == "call" else "to spend money"
-            icon = ICON["call"] if q.kind == "call" else ICON["approval"]
+            need = {"call": "to place the call", "post": "to post it"}.get(q.kind, "to spend money")
+            icon = ICON.get(q.kind, ICON["approval"]) if q.kind in ("call", "post") else ICON["approval"]
             await self._send(f"{icon} {q.name}: I need a YES {need}. Reply YES or NO", q.agent)
             return
         choice, free = r.choice, r.free_text
@@ -406,6 +406,8 @@ class Messenger:
         await self.command("answer", **args)
         if q.kind == "call":
             ack = "Calling now." if choice == "YES" else "OK, not calling."
+        elif q.kind == "post":
+            ack = "Posting now." if choice == "YES" else "OK, not posting."
         elif q.kind == "approval":
             ack = "Approved." if choice == "YES" else "Cancelled, nothing was charged."
         elif free:

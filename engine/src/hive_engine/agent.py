@@ -89,10 +89,12 @@ class Agent:
     def link(self, frm: tuple[float, float], to: tuple[float, float], text: str | None = None) -> None:
         self.emit("link", **{"from": list(frm), "to": list(to)}, text=text)
 
-    async def ask_human(self, question: str, options: list[str], timeout: float | None = None) -> Any:
+    async def ask_human(self, question: str, options: list[str], timeout: float | None = None,
+                        **extra: Any) -> Any:
+        """extra: additive needs_human fields, e.g. kind="post" (explicit YES/NO in iMessage)."""
         loop = asyncio.get_running_loop()
         self._pending_answer = loop.create_future()
-        self.emit("needs_human", question=question, options=options)
+        self.emit("needs_human", question=question, options=options, **extra)
         try:
             return await asyncio.wait_for(self._pending_answer, timeout)
         finally:
