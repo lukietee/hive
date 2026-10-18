@@ -17,6 +17,8 @@ final class DeckViewerController {
     private let send: (String, [String: Any]) -> Void
     private var window: DeckViewerWindow?
     private var bag = Set<AnyCancellable>()
+    /// Set by the engine's window_place so the viewer tiles with the agents' windows.
+    private var placed: NSRect?
 
     init(store: HiveStore, send: @escaping (String, [String: Any]) -> Void) {
         self.store = store
@@ -45,7 +47,7 @@ final class DeckViewerController {
 
     private func show() {
         if window == nil {
-            let w = DeckViewerWindow(frame: Self.defaultFrame(), model: model, store: store)
+            let w = DeckViewerWindow(frame: placed ?? Self.defaultFrame(), model: model, store: store)
             NotificationCenter.default.addObserver(
                 forName: NSWindow.didMoveNotification, object: w, queue: .main
             ) { [weak self] _ in MainActor.assumeIsolated { self?.reportViewer() } }
@@ -62,6 +64,14 @@ final class DeckViewerController {
             window.animator().alphaValue = 1
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.reportViewer() }
+    }
+
+    /// Moves/resizes the viewer to the engine's layout cell (now, or when it next appears).
+    func place(_ rect: CGRect) {
+        let f = ScreenGeometry.appKitFrame(rect)
+        placed = f
+        window?.setFrame(f, display: true, animate: window?.isVisible == true)
+        reportViewer()
     }
 
     private func hide() {

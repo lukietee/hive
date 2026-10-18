@@ -30,6 +30,8 @@ final class HiveStore: ObservableObject {
     @Published var draft = ""
     /// Where notch/menu commands go: the engine socket, or the simulator log.
     var onCommand: ((String, [String: Any]) -> Void)?
+    /// window_place {window: "deck"|"call", x, y, w, h}: the engine's screen layout for our native windows.
+    var onPlace: ((String, CGRect) -> Void)?
     let deck = DeckViewerModel()
     let call = CallModel()
 
@@ -118,6 +120,11 @@ final class HiveStore: ObservableObject {
                 budget = Budget(spent: num(d["spent"]) ?? 0, total: num(d["total"]) ?? 0, caps: caps)
             }
         case "deck_loaded", "deck_focus", "deck_slide_updated": deck.handle(type, d)
+        case "window_place":
+            if let w = d["window"] as? String, let x = num(d["x"]), let y = num(d["y"]),
+               let ww = num(d["w"]), let hh = num(d["h"]) {
+                onPlace?(w, CGRect(x: x, y: y, width: ww, height: hh))
+            }
         case "call_started", "call_state", "call_transcript", "call_ended": call.handle(type, agent: agentId, d)
         default:
             break

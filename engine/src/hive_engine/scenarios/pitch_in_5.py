@@ -39,6 +39,7 @@ from pptx.dml.color import RGBColor
 from .. import conductor
 from ..agent import Agent
 from ..browser_agent import BrowserAgent, Rect, launch_chrome, open_window, page_screen_rect
+from ..layout import check_bounds, grid, place_native, usable_area
 from ..bus import Bus
 from ..deck_agent import DeckAgent
 from ..http_server import HTTP_PORT
@@ -722,15 +723,17 @@ async def run(bus: Bus, render_dir: Path, fast: bool = False, auto_human: bool =
     try:
         async with async_playwright() as pw:
             browser = await launch_chrome(pw)
-            left, top, sw, sh = await screen_area(browser)
-            cw, ch = sw // 2, (sh - 30) // 2
-            cell = lambda col, row: Rect(left + col * cw, top + 30 + row * ch, cw, ch)  # noqa: E731
+            # Four equal, non-overlapping cells: Fixer | Web on top, Deck Viewer | Social below.
+            cells = grid(4, await usable_area())
+            cell = lambda col, row: cells[row * 2 + col]  # noqa: E731
+            place_native(bus, "deck", cell(0, 1))
 
             fixer, web, social = (TrackedBrowserAgent(bus, a, opts.dwell, opts.glide_ms)
                                   for a in ("fixer", "web", "social"))
             await fixer.open(browser, cell(0, 0), f"{WORLD_URL}/hive/editor.html")
             await web.open(browser, cell(1, 0), f"{WORLD_URL}/site/index.html")
             await social.open(browser, cell(1, 1), f"{WORLD_URL}/hive/composer.html")
+            out["layout_warnings"] = await check_bounds([fixer, web, social])
             deck = PitchDeck(bus, ws / "deck" / "pitch.pptx", render_dir)
             deck.step_pause = 0.8 * opts.dwell
             checker = Agent(bus, "checker")

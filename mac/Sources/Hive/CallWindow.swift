@@ -145,6 +145,7 @@ final class CallWindowController {
     private let model: CallModel
     private var window: NSPanel?
     private var bag = Set<AnyCancellable>()
+    private var placed: NSRect?
 
     init(model: CallModel) {
         self.model = model
@@ -155,7 +156,7 @@ final class CallWindowController {
     }
 
     private func makeWindow() -> NSPanel {
-        let p = NSPanel(contentRect: Self.defaultFrame(), styleMask: [.borderless, .nonactivatingPanel],
+        let p = NSPanel(contentRect: placed ?? Self.defaultFrame(), styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
@@ -166,9 +167,17 @@ final class CallWindowController {
         p.isReleasedWhenClosed = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let host = NSHostingView(rootView: CallView(model: model))
-        host.frame = NSRect(origin: .zero, size: Self.size)
+        host.frame = NSRect(origin: .zero, size: (placed ?? Self.defaultFrame()).size)
+        host.autoresizingMask = [.width, .height]
         p.contentView = host
         return p
+    }
+
+    /// Moves/resizes the Call window to the engine's layout cell (now, or when it next appears).
+    func place(_ rect: CGRect) {
+        let f = ScreenGeometry.appKitFrame(rect)
+        placed = f
+        window?.setFrame(f, display: true, animate: window?.isVisible == true)
     }
 
     private func show() {
@@ -228,7 +237,7 @@ struct CallView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .frame(width: CallWindowController.size.width, height: CallWindowController.size.height)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)  // fills whatever cell the engine placed it in
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(Color(white: 0.07))
@@ -389,7 +398,7 @@ struct TranscriptBubble: View {
                         .fill(mine ? tint.opacity(0.28) : Color.white.opacity(0.1))
                 )
                 .opacity(bubble.final ? 1 : 0.62)
-                .frame(maxWidth: 260, alignment: mine ? .trailing : .leading)
+                .frame(maxWidth: 380, alignment: mine ? .trailing : .leading)
             if !mine { Spacer(minLength: 44) }
         }
         .transition(.opacity.combined(with: .move(edge: .bottom)))

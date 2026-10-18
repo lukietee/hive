@@ -21,6 +21,11 @@ enum ScreenGeometry {
         CGPoint(x: p.x, y: primaryHeight - p.y)
     }
 
+    /// Contract rect (global, top-left origin) -> AppKit window frame (bottom-left origin).
+    static func appKitFrame(_ r: CGRect) -> NSRect {
+        NSRect(x: r.minX, y: primaryHeight - r.maxY, width: r.width, height: r.height)
+    }
+
     /// The screen that has the notch (built-in display), or the main screen.
     static var notchScreen: NSScreen {
         NSScreen.screens.first { $0.safeAreaInsets.top > 0 }

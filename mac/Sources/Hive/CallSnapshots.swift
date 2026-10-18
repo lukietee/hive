@@ -36,11 +36,11 @@ enum CallSnapshots {
             for (type, d) in events { model.handle(type, agent: "cake", d) }
             model.spokeAt = Date()
             model.speaker = "them"
-            let size = CallWindowController.size
+            let size = CGSize(width: 744, height: 413)  // the party grid's shared cell on a 14" MacBook Pro
             let view = ZStack {
                 LinearGradient(colors: [Color(red: 0.36, green: 0.42, blue: 0.62), Color(red: 0.62, green: 0.5, blue: 0.62)],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                CallView(model: model)
+                CallView(model: model).frame(width: size.width, height: size.height)
             }
             .frame(width: size.width + 60, height: size.height + 60)
             .transaction { $0.animation = nil }

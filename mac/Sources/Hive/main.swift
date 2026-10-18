@@ -22,6 +22,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         store.onCommand = { [weak self] cmd, args in self?.route(cmd, args) }
         deckViewer = DeckViewerController(store: store) { [weak self] cmd, args in self?.client.send(cmd: cmd, args: args) }
         callWindow = CallWindowController(model: store.call)
+        store.onPlace = { [weak self] window, rect in
+            switch window {
+            case "deck": self?.deckViewer.place(rect)
+            case "call": self?.callWindow.place(rect)
+            default: break
+            }
+        }
 
         buildOverlays()
         notch = NotchPanelController(store: store)
