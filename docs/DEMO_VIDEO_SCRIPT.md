@@ -1,6 +1,6 @@
 # Hive — Demo Video Script (~1:30)
 
-Pace: about 150 words per minute, so the voiceover is about 225 words. Timings are targets; trim B-roll first if you run long.
+Pace: about 150 words per minute, so the voiceover is about 215 words. Timings are targets; trim B-roll first if you run long.
 
 **Setup before recording:** notch app, engine and iMessage bridge running; fresh group chats (delete old ones on your phone); Do Not Disturb on; screen recording (⌘⇧5) plus a phone camera or iPhone Mirroring for the texts.
 
@@ -69,7 +69,7 @@ Pace: about 150 words per minute, so the voiceover is about 225 words. Timings a
 >
 > Hive. Your team, on your computer, from anywhere.
 
-*(about 230 words · about 1:30)*
+*(216 words · about 1:25 at a relaxed pace)*
 
 ---
 
