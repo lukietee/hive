@@ -102,6 +102,22 @@ Each Claude role can be swapped with an environment variable (`HIVE_CONDUCTOR_MO
 
 ---
 
+## APIs and services
+
+| Service | How Hive uses it |
+|---|---|
+| **Anthropic API** | Every Claude model above (Messages API with tool use) |
+| **Photon 2.0** | The iMessage line: users, spaces (1:1 chats and per-task group chats), sending and receiving messages and images through the REST API; a phone number and SIP voice profile for outbound calls |
+| **ElevenLabs** | Conversational AI agent for calls (agent config API, SIP-trunk outbound call API, conversation transcripts), plus the text-to-speech API |
+| **Browser Use** | Open-source browser agent framework behind every web agent (one process per agent, attached to its own Chrome window) |
+| **Google Gemini API** | Image generation for launch graphics and invitations |
+| **Vercel** | Deploys finished sites to a live URL (Vercel CLI) |
+| **Chrome DevTools Protocol / Playwright** | Drives each agent's Chrome window, streams it to the live view, and syncs the ghost cursor with real clicks |
+| **macOS Accessibility API, AppleScript** | Drives Messages, Notes, Reminders, Calendar, Keynote and Contacts; places and measures windows |
+| **Web apps agents operate** | Instagram, Google Maps, DoorDash, Amazon (through the browser, in a dedicated agent profile) |
+
+---
+
 ## Tech stack
 
 | Layer | Technology |
